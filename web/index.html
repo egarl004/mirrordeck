@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MirrorDeck</title>
+<meta name="description" content="Put your iPhone screen on your Mac over Wi-Fi — and drive it with your mouse and keyboard. Free and open source.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;450;600&display=swap">
+<style>
+/* ---- tokens: light is the base, both dark paths override only these ---- */
+:root {
+  --bg:        #F1F3F5;
+  --surface:   #FFFFFF;
+  --surface-2: #E9ECEF;
+  --ink:       #131820;
+  --ink-soft:  #59616D;
+  --line:      #DDE2E7;
+  --accent:    #9C5A06;
+  --accent-ink:#FFFFFF;
+  --signal:    #3A6BE8;  /* diegetic: the colour of a lit screen */
+  --shadow:    0 1px 2px rgba(19,24,32,.06), 0 8px 24px rgba(19,24,32,.07);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:        #0F1318;
+    --surface:   #161B22;
+    --surface-2: #1D242D;
+    --ink:       #E7EBEF;
+    --ink-soft:  #98A2AE;
+    --line:      #272E38;
+    --accent:    #E9A13B;
+    --accent-ink:#1A1206;
+    --signal:    #5A8AFF;
+    --shadow:    0 1px 2px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"] {
+  --bg:        #0F1318;
+  --surface:   #161B22;
+  --surface-2: #1D242D;
+  --ink:       #E7EBEF;
+  --ink-soft:  #98A2AE;
+  --line:      #272E38;
+  --accent:    #E9A13B;
+  --accent-ink:#1A1206;
+  --signal:    #5A8AFF;
+  --shadow:    0 1px 2px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.35);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 450;
+  font-size: 17px;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3 {
+  font-family: "Bricolage Grotesque", "IBM Plex Sans", sans-serif;
+  text-wrap: balance;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+p { margin: 0; }
+a { color: inherit; }
+
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+.measure { max-width: 62ch; }
+
+/* ---- masthead ---- */
+.masthead {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 20px; padding: 22px 0;
+  border-bottom: 1px solid var(--line);
+}
+.mark { display: flex; align-items: center; gap: 11px; font-family: "Bricolage Grotesque", sans-serif; font-weight: 800; font-size: 18px; letter-spacing: -0.03em; }
+.mark svg { display: block; }
+.masthead nav { display: flex; gap: 22px; font-size: 14.5px; }
+.masthead nav a { color: var(--ink-soft); text-decoration: none; }
+.masthead nav a:hover { color: var(--ink); }
+
+/* ---- hero ---- */
+.hero { display: grid; grid-template-columns: minmax(0,0.95fr) minmax(0,1.05fr); gap: 56px; align-items: center; padding: 76px 0 68px; }
+.eyebrow {
+  font-family: "IBM Plex Mono", monospace; font-size: 12px; letter-spacing: .13em;
+  text-transform: uppercase; color: var(--accent); margin-bottom: 20px;
+}
+.hero h1 { font-size: clamp(2.6rem, 6vw, 4.05rem); line-height: 1.02; font-weight: 800; }
+.hero .lede { margin-top: 22px; font-size: 1.16rem; color: var(--ink-soft); }
+.cta-row { display: flex; flex-wrap: wrap; gap: 13px; margin-top: 34px; align-items: center; }
+.btn {
+  display: inline-flex; align-items: center; gap: 9px;
+  padding: 13px 22px; border-radius: 9px; text-decoration: none;
+  font-weight: 600; font-size: 15.5px; border: 1px solid transparent;
+  transition: transform .15s ease, background .15s ease, border-color .15s ease;
+}
+.btn-primary { background: var(--accent); color: var(--accent-ink); }
+.btn-primary:hover { transform: translateY(-1px); }
+.btn-ghost { border-color: var(--line); background: var(--surface); color: var(--ink); }
+.btn-ghost:hover { border-color: var(--ink-soft); }
+.btn:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.meta-line { margin-top: 18px; font-size: 13.5px; color: var(--ink-soft); font-family: "IBM Plex Mono", monospace; }
+
+/* ---- generic section ---- */
+.band { padding: 68px 0; border-top: 1px solid var(--line); }
+.band h2 { font-size: clamp(1.7rem, 3.2vw, 2.3rem); font-weight: 600; }
+.band .sub { margin-top: 14px; color: var(--ink-soft); }
+
+/* ---- two-column feature pair ---- */
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 22px; margin-top: 40px; }
+.card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 13px; padding: 26px; box-shadow: var(--shadow);
+}
+.card h3 { font-size: 1.2rem; font-weight: 600; margin-bottom: 9px; }
+.card p { color: var(--ink-soft); font-size: 15.5px; }
+.tag {
+  display: inline-block; font-family: "IBM Plex Mono", monospace; font-size: 11px;
+  letter-spacing: .09em; text-transform: uppercase; padding: 4px 9px; border-radius: 5px;
+  background: var(--surface-2); color: var(--ink-soft); margin-bottom: 14px;
+}
+.tag.warn { color: var(--accent); }
+
+/* ---- key/value spec list ---- */
+.specs { margin-top: 36px; border-top: 1px solid var(--line); }
+.spec { display: grid; grid-template-columns: 190px 1fr; gap: 24px; padding: 17px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
+.spec dt { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft); }
+.spec dd { margin: 0; font-size: 15.5px; }
+
+/* ---- code ---- */
+.code {
+  margin: 22px 0 0; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 11px; padding: 20px 22px; overflow-x: auto;
+  font-family: "IBM Plex Mono", monospace; font-size: 13.5px; line-height: 1.85;
+  white-space: pre; color: var(--ink);
+}
+.code .c { color: var(--ink-soft); }
+.code .p { color: var(--accent); user-select: none; }
+
+/* ---- steps: numbered only because the order is real ---- */
+.steps { counter-reset: s; margin-top: 38px; display: grid; gap: 2px; }
+.step { display: grid; grid-template-columns: 44px 1fr; gap: 18px; padding: 20px 0; border-top: 1px solid var(--line); }
+.step::before {
+  counter-increment: s; content: counter(s, decimal-leading-zero);
+  font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--accent); padding-top: 4px;
+}
+.step h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 5px; }
+.step p { color: var(--ink-soft); font-size: 15.5px; }
+
+/* ---- callout ---- */
+.note {
+  margin-top: 34px; border-left: 2px solid var(--accent);
+  padding: 4px 0 4px 20px; color: var(--ink-soft); font-size: 15px;
+}
+.note strong { color: var(--ink); font-weight: 600; }
+
+footer { border-top: 1px solid var(--line); padding: 40px 0 56px; color: var(--ink-soft); font-size: 14px; }
+footer a { color: var(--ink-soft); }
+.foot-row { display: flex; flex-wrap: wrap; gap: 12px 30px; justify-content: space-between; }
+
+/* ---- illustration ---- */
+.figure { width: 100%; height: auto; display: block; }
+.beam { animation: pulse 3.4s ease-in-out infinite; transform-origin: center; }
+.beam:nth-of-type(2) { animation-delay: .45s; }
+.beam:nth-of-type(3) { animation-delay: .9s; }
+@keyframes pulse { 0%,100% { opacity: .18; } 45% { opacity: .9; } }
+@media (prefers-reduced-motion: reduce) {
+  .beam { animation: none; opacity: .6; }
+  .btn { transition: none; }
+}
+
+@media (max-width: 860px) {
+  .hero { grid-template-columns: 1fr; gap: 40px; padding: 52px 0; }
+  .spec { grid-template-columns: 1fr; gap: 5px; }
+  .masthead nav { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="masthead">
+    <div class="mark">
+      <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
+        <rect x="1" y="1" width="24" height="24" rx="6.5" fill="var(--ink)"/>
+        <rect x="9" y="5.5" width="8" height="15" rx="2.6" fill="var(--bg)"/>
+        <rect x="10.1" y="6.6" width="5.8" height="12.8" rx="1.7" fill="var(--signal)"/>
+      </svg>
+      MirrorDeck
+    </div>
+    <nav>
+      <a href="#what">What it does</a>
+      <a href="#requirements">Requirements</a>
+      <a href="#install">Install</a>
+      <a href="#source">Source</a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <div>
+      <p class="eyebrow">macOS · free &amp; open source</p>
+      <h1>Your iPhone, on your Mac.</h1>
+      <p class="lede">
+        MirrorDeck turns your Mac into a wireless screen-mirroring target. Pick it
+        from Control Center and your phone appears in a window — then reach in and
+        use it with your mouse and keyboard.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://github.com/egarl004/mirrordeck/releases/latest">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M8 1v9m0 0L4.5 6.5M8 10l3.5-3.5M2 12.5v1A1.5 1.5 0 0 0 3.5 15h9a1.5 1.5 0 0 0 1.5-1.5v-1"
+                  stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Download for macOS
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/egarl004/mirrordeck">View source</a>
+      </div>
+      <p class="meta-line">macOS 14+ · Apple silicon &amp; Intel · ~4 MB</p>
+    </div>
+
+    <!-- Phone mirrors to Mac; control travels back the other way. -->
+    <svg class="figure" viewBox="0 0 640 400" role="img"
+         aria-label="An iPhone streaming its screen to a Mac laptop, with control commands travelling back from the Mac to the phone.">
+      <!-- Mac -->
+      <rect x="286" y="86" width="330" height="208" rx="11" fill="var(--surface)" stroke="var(--line)" stroke-width="2"/>
+      <rect x="298" y="98" width="306" height="184" rx="5" fill="var(--surface-2)"/>
+      <!-- mirrored phone screen on the Mac -->
+      <rect x="404" y="112" width="94" height="156" rx="11" fill="var(--ink)" opacity=".92"/>
+      <rect x="408.5" y="116.5" width="85" height="147" rx="8" fill="var(--signal)" opacity=".9"/>
+      <g fill="#fff" opacity=".8">
+        <rect x="418" y="139" width="19" height="19" rx="5"/><rect x="441.5" y="139" width="19" height="19" rx="5"/><rect x="465" y="139" width="19" height="19" rx="5"/>
+        <rect x="418" y="163" width="19" height="19" rx="5"/><rect x="441.5" y="163" width="19" height="19" rx="5"/><rect x="465" y="163" width="19" height="19" rx="5"/>
+        <rect x="418" y="187" width="19" height="19" rx="5"/><rect x="441.5" y="187" width="19" height="19" rx="5"/><rect x="465" y="187" width="19" height="19" rx="5"/>
+      </g>
+      <rect x="426" y="124" width="50" height="7" rx="3.5" fill="var(--ink)" opacity=".55"/>
+      <!-- laptop base -->
+      <path d="M266 294h370l16 20H250z" fill="var(--surface-2)" stroke="var(--line)" stroke-width="2" stroke-linejoin="round"/>
+      <rect x="392" y="300" width="118" height="6" rx="3" fill="var(--line)"/>
+
+      <!-- Phone -->
+      <rect x="34" y="96" width="126" height="212" rx="24" fill="var(--ink)"/>
+      <rect x="40" y="102" width="114" height="200" rx="19" fill="var(--signal)"/>
+      <rect x="72" y="110" width="50" height="8" rx="4" fill="var(--ink)" opacity=".5"/>
+      <g fill="#fff" opacity=".82">
+        <rect x="55" y="140" width="24" height="24" rx="6.5"/><rect x="85" y="140" width="24" height="24" rx="6.5"/><rect x="115" y="140" width="24" height="24" rx="6.5"/>
+        <rect x="55" y="170" width="24" height="24" rx="6.5"/><rect x="85" y="170" width="24" height="24" rx="6.5"/><rect x="115" y="170" width="24" height="24" rx="6.5"/>
+        <rect x="55" y="200" width="24" height="24" rx="6.5"/><rect x="85" y="200" width="24" height="24" rx="6.5"/><rect x="115" y="200" width="24" height="24" rx="6.5"/>
+      </g>
+      <rect x="66" y="284" width="62" height="5" rx="2.5" fill="#fff" opacity=".55"/>
+
+      <!-- screen travelling right -->
+      <g fill="none" stroke="var(--signal)" stroke-width="2.6" stroke-linecap="round">
+        <path class="beam" d="M186 178a34 34 0 0 1 0 44"/>
+        <path class="beam" d="M206 168a52 52 0 0 1 0 64"/>
+        <path class="beam" d="M226 158a70 70 0 0 1 0 84"/>
+      </g>
+      <text x="196" y="146" font-family="IBM Plex Mono, monospace" font-size="10.5"
+            letter-spacing="1.4" fill="var(--ink-soft)">SCREEN</text>
+
+      <!-- control travelling back -->
+      <g stroke="var(--accent)" stroke-width="2.2" fill="none" stroke-linecap="round">
+        <path d="M262 262H190" stroke-dasharray="5 6"/>
+        <path d="M199 255l-9 7 9 7"/>
+      </g>
+      <text x="196" y="286" font-family="IBM Plex Mono, monospace" font-size="10.5"
+            letter-spacing="1.4" fill="var(--accent)">CONTROL</text>
+    </svg>
+  </section>
+</div>
+
+<div class="wrap">
+  <section class="band" id="what">
+    <h2>Two directions, two mechanisms</h2>
+    <p class="sub measure">
+      Video comes off the phone the same way an Apple TV receives it. Control is a
+      separate channel travelling the other way — which is why one works instantly
+      and the other asks something of you.
+    </p>
+    <div class="pair">
+      <article class="card">
+        <span class="tag">Works out of the box</span>
+        <h3>Mirroring</h3>
+        <p>
+          Your Mac advertises itself on the network. Open Control Center on your
+          iPhone, tap Screen Mirroring, pick your Mac, and the screen shows up in a
+          device-shaped window — hardware-decoded, about one frame of latency.
+          Nothing to install on the phone.
+        </p>
+      </article>
+      <article class="card">
+        <span class="tag warn">Requires setup</span>
+        <h3>Control</h3>
+        <p>
+          Click to tap, drag to swipe, scroll to scroll, type to type. Arrow keys
+          move between home screens. It drives the real device, not a simulator —
+          but iOS only permits this through Apple's own testing tools, so it needs
+          Xcode and a developer account.
+        </p>
+      </article>
+    </div>
+  </section>
+
+  <section class="band">
+    <h2>How it works</h2>
+    <div class="steps">
+      <div class="step">
+        <div>
+          <h3>Your Mac announces itself</h3>
+          <p>It publishes the same network services an Apple TV does, so your iPhone lists it as a mirroring destination.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>The phone streams its screen</h3>
+          <p>Encrypted H.264 video arrives over Wi-Fi and is decoded on the GPU, straight into the window.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>Your input travels back</h3>
+          <p>Mouse and keyboard events become real touches on the device, sent over a second connection to a helper running on the phone.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="requirements">
+    <h2>What you need</h2>
+    <p class="sub measure">Mirroring asks for very little. Control asks for more, and it is worth knowing before you download.</p>
+    <dl class="specs">
+      <div class="spec"><dt>macOS</dt><dd>14 (Sonoma) or later, Apple silicon or Intel.</dd></div>
+      <div class="spec"><dt>iPhone</dt><dd>Any iPhone on the same Wi-Fi network. Nothing to install for mirroring.</dd></div>
+      <div class="spec"><dt>Network</dt><dd>Both devices on the same network. Your Mac may ask for local network permission the first time.</dd></div>
+      <div class="spec"><dt>For control only</dt><dd>Xcode and your own Apple Developer account. You build and launch WebDriverAgent on the phone once — iOS offers no other way for a Mac to send touches, and there is no App Store route for it.</dd></div>
+    </dl>
+    <p class="note">
+      <strong>Mirroring works for anyone. Control is realistically for developers.</strong>
+      If you do not already have Xcode installed, treat MirrorDeck as a mirroring
+      tool and the control features as a bonus you may never turn on.
+    </p>
+  </section>
+
+  <section class="band" id="install">
+    <h2>Getting started</h2>
+    <p class="sub measure">Download, drag to Applications, open. MirrorDeck lives in the menu bar — there is no main window until a phone connects.</p>
+    <pre class="code"><span class="c"># Optional: enabling control, once per phone</span>
+<span class="p">$</span> git clone https://github.com/egarl004/mirrordeck.git
+<span class="p">$</span> cd mirrordeck &amp;&amp; ./scripts/bootstrap.sh
+<span class="p">$</span> ./scripts/wda.sh install   <span class="c"># builds and installs the helper</span>
+<span class="p">$</span> ./scripts/wda.sh run       <span class="c"># leave running while you control</span></pre>
+    <p class="note">
+      Then hover the top edge of the mirror window, click <strong>Enable Control</strong>,
+      and enter the phone's IP. It is remembered per device and reconnects next time.
+    </p>
+  </section>
+
+  <section class="band" id="source">
+    <h2>Free, and open</h2>
+    <p class="sub measure">
+      MirrorDeck is released under the GPL-3.0. You can read every line, build it
+      yourself, change it, and pass it on. It is built on the work of the UxPlay
+      project, whose AirPlay implementation made it possible, and on Appium's
+      WebDriverAgent for touch input.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-ghost" href="https://github.com/egarl004/mirrordeck">Read the source</a>
+      <a class="btn btn-ghost" href="https://github.com/egarl004/mirrordeck/issues">Report an issue</a>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SUPPORT — delete this entire section element to launch with no
+       donation mechanism at all. See docs/legal-brief.md section 6:
+       whether donations count as "private financial gain" is an open
+       question, and launching without one is the safer default.
+       ============================================================ -->
+  <section class="band" id="support">
+    <h2>Support the project</h2>
+    <p class="sub measure">
+      MirrorDeck is free and always will be. If it saved you some time and you feel
+      like putting something in the tin, it is appreciated and entirely optional.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/sponsors/egarl004">Sponsor on GitHub</a>
+    </div>
+  </section>
+
+  <footer>
+    <div class="foot-row">
+      <span>MirrorDeck — free software under the <a href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0</a>.</span>
+      <span>Not affiliated with or endorsed by Apple Inc.</span>
+    </div>
+  </footer>
+</div>
+
+</body>
+</html>
