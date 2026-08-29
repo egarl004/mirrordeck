@@ -64,8 +64,14 @@ final class WDAClient {
         timer.schedule(deadline: .now() + 8, repeating: 8)
         timer.setEventHandler { [weak self] in
             guard let self, self.keepAwake, let sid = self.sessionID else { return }
-            if let locked = self.request("GET", "/session/\(sid)/wda/locked")?["value"] as? Bool,
-               locked {
+            guard let response = self.request("GET", "/session/\(sid)/wda/locked") else {
+                // Session is gone — WDA restarted, or its runner was relaunched.
+                // Re-establish instead of polling a dead session while the UI
+                // still claims to be connected.
+                self.performConnect()
+                return
+            }
+            if let locked = response["value"] as? Bool, locked {
                 _ = self.request("POST", "/session/\(sid)/wda/unlock", body: [:])
             }
         }
@@ -93,18 +99,44 @@ final class WDAClient {
             return
         }
         sessionID = sid
-        guard let sizeValue = request("GET", "/session/\(sid)/window/size")?["value"] as? [String: Any],
-              let width = sizeValue["width"] as? Double,
-              let height = sizeValue["height"] as? Double else {
+        applyFastSettings(sessionID: sid)
+
+        // Unlock FIRST. A locked phone has no foreground application, so
+        // /window/size fails with a stale-element error and every gesture
+        // computes infinite coordinates. Checking size before unlocking
+        // deadlocks: the connection fails, so keep-awake never starts, so the
+        // phone stays locked.
+        unlockIfNeeded(sessionID: sid)
+
+        guard let screenSize = fetchScreenSize(sessionID: sid) else {
+            sessionID = nil
             state = .disconnected
             return
         }
-        applyFastSettings(sessionID: sid)
-        if let locked = request("GET", "/session/\(sid)/wda/locked")?["value"] as? Bool, locked {
-            _ = request("POST", "/session/\(sid)/wda/unlock", body: [:])
-        }
         startKeepAwake()
-        state = .connected(screenSize: CGSize(width: width, height: height))
+        state = .connected(screenSize: screenSize)
+    }
+
+    private func unlockIfNeeded(sessionID sid: String) {
+        guard let locked = request("GET", "/session/\(sid)/wda/locked")?["value"] as? Bool,
+              locked else { return }
+        _ = request("POST", "/session/\(sid)/wda/unlock", body: [:])
+        // Springboard needs a moment to bring a foreground app back.
+        Thread.sleep(forTimeInterval: 1.0)
+    }
+
+    /// Screen size in points. Retried because WDA reports a stale element for a
+    /// beat after unlocking, and a single failure would drop the connection.
+    private func fetchScreenSize(sessionID sid: String) -> CGSize? {
+        for attempt in 0..<3 {
+            if let value = request("GET", "/session/\(sid)/window/size")?["value"] as? [String: Any],
+               let width = value["width"] as? Double,
+               let height = value["height"] as? Double {
+                return CGSize(width: width, height: height)
+            }
+            if attempt < 2 { Thread.sleep(forTimeInterval: 0.8) }
+        }
+        return nil
     }
 
     /// Disable WDA's post-gesture idle/animation waits — cuts ~40% off every

@@ -61,6 +61,27 @@ Then in the mirror window, hover to reveal the toolbar → **Enable Control** �
 the phone's IP (prefilled from last use). It's remembered per device and
 reconnects automatically next time.
 
+### If control stops working
+
+The WebDriverAgent runner degrades over long sessions. After a few hours of use
+— app launches, expiring sessions, lock/unlock cycles — it can end up reporting
+`Application local.pid.0 is not running` for `/window/size`, and gestures then
+fail with `point.x != INFINITY` because no screen size can be resolved. The app
+cannot connect in that state.
+
+The fix is to restart the runner:
+
+```sh
+./scripts/wda.sh run
+```
+
+Check whether this is the problem with
+`curl -s http://<phone-ip>:8100/status`. If it reports ready but
+`curl -s http://<phone-ip>:8100/session/<sid>/window/size` returns a stale
+element error, the runner needs restarting. MirrorDeck now recovers on its own
+from an *expired session* (keep-awake detects it and reconnects), but it cannot
+repair a degraded runner process on the phone.
+
 `run` prints the server URL it bound, e.g.
 `ServerURLHere->http://192.168.1.197:8100<-ServerURLHere`. Signing uses team
 `HLL4A3K24N` and bundle prefix `com.emersongarland`; override with `TEAM_ID=` /
