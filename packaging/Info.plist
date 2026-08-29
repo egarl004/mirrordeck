@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>MirrorDeck</string>
+	<key>CFBundleDisplayName</key>
+	<string>MirrorDeck</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.emersongarland.MirrorDeck</string>
+	<key>CFBundleExecutable</key>
+	<string>MirrorDeck</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>__VERSION__</string>
+	<key>CFBundleVersion</key>
+	<string>__BUILD__</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<!-- Menu bar app: no Dock icon, no main window at launch. -->
+	<key>LSUIElement</key>
+	<true/>
+	<!-- Required on macOS 15+: the app both advertises and is contacted over
+	     the local network, and it reaches WebDriverAgent on the phone. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>MirrorDeck advertises this Mac as an AirPlay screen mirroring target and connects to your iPhone over Wi-Fi.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_airplay._tcp</string>
+		<string>_raop._tcp</string>
+	</array>
+	<key>NSHumanReadableCopyright</key>
+	<string>__COPYRIGHT__</string>
+</dict>
+</plist>

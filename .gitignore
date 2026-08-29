@@ -1,0 +1,18 @@
+# Build output
+.build/
+dist/
+native/build/
+*.o
+*.a
+
+# Third-party sources — fetched by scripts/bootstrap.sh at pinned commits
+vendor/
+
+# Xcode / SwiftPM
+*.xcuserstate
+xcuserdata/
+.swiftpm/
+Package.resolved
+
+# macOS
+.DS_Store
