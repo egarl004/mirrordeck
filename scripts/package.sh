@@ -18,16 +18,21 @@ APP_NAME="MirrorDeck"
 DIST="dist"
 APP="$DIST/$APP_NAME.app"
 
-echo "==> Building native AirPlay core"
-[ -f native/build/libMirrorCore.a ] || ./native/build.sh
+echo "==> Building native AirPlay core (shared library)"
+[ -f native/build/libMirrorCore.dylib ] || ./native/build.sh >/dev/null
 
 echo "==> Building $APP_NAME $VERSION (release)"
 swift build -c release 2>&1 | grep -vE "^ld: warning" | tail -2
 
 echo "==> Assembling bundle"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp .build/release/"$APP_NAME" "$APP/Contents/MacOS/$APP_NAME"
+
+# All copyleft code ships as this replaceable shared library, never linked into
+# the app binary. Required for LGPL relinking — see licenses/NOTICE.md.
+cp native/build/libMirrorCore.dylib "$APP/Contents/Frameworks/"
+cp -R licenses "$APP/Contents/Resources/licenses"
 
 sed -e "s/__VERSION__/$VERSION/" \
     -e "s/__BUILD__/$BUILD_NUMBER/" \
@@ -49,15 +54,19 @@ IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
     | sed -E 's/.*"(.*)".*/\1/' || true)"
 if [ -n "$IDENTITY" ]; then
     echo "    identity: $IDENTITY"
+    # Nested code must be signed before the enclosing bundle.
     # Hardened runtime is mandatory for notarization.
-    codesign --force --deep --options runtime --timestamp \
+    codesign --force --options runtime --timestamp \
+        --sign "$IDENTITY" "$APP/Contents/Frameworks/libMirrorCore.dylib"
+    codesign --force --options runtime --timestamp \
         --sign "$IDENTITY" "$APP"
     SIGNED_FOR_DISTRIBUTION=1
 else
     echo "    WARNING: no 'Developer ID Application' certificate found."
     echo "    Falling back to ad-hoc signing — Gatekeeper will block this build"
     echo "    on any other Mac. See README (Distribution) to get the cert."
-    codesign --force --deep --sign - "$APP"
+    codesign --force --sign - "$APP/Contents/Frameworks/libMirrorCore.dylib"
+    codesign --force --sign - "$APP"
     SIGNED_FOR_DISTRIBUTION=0
 fi
 codesign --verify --strict --verbose=1 "$APP" 2>&1 | tail -2

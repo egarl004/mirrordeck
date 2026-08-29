@@ -17,7 +17,18 @@ let package = Package(
             dependencies: ["CMirrorBridge"],
             path: "Sources/MirrorDeck",
             linkerSettings: [
-                .unsafeFlags(["-Lnative/build"]),
+                // libMirrorCore.dylib is linked dynamically and kept replaceable
+                // (it holds all copyleft code — see licenses/NOTICE.md).
+                // Two rpaths: the first finds it in a dev build tree, the second
+                // inside MirrorDeck.app/Contents/Frameworks.
+                // SwiftPM puts the real binary in .build/<triple>/<config>/, so the
+                // dev rpath needs three levels up; ../../ covers the .build/<config>/ layout.
+                .unsafeFlags([
+                    "-Lnative/build",
+                    "-Xlinker", "-rpath", "-Xlinker", "@executable_path/../../../native/build",
+                    "-Xlinker", "-rpath", "-Xlinker", "@executable_path/../../native/build",
+                    "-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks",
+                ]),
                 .linkedLibrary("MirrorCore"),
                 .linkedFramework("AppKit"),
                 .linkedFramework("AVFoundation"),

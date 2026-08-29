@@ -155,15 +155,26 @@ xcrun notarytool store-credentials mirrordeck --apple-id <you@example.com> --tea
 
 then `NOTARIZE=1 ./scripts/package.sh`.
 
-**2. LGPL compliance (fixable, needs work).** The AirPlay core is UxPlay's
-`lib/`, which is LGPL-2.1. LGPL permits use in a commercial closed-source
-product, but it requires that users be able to **relink** the app against a
-modified version of the LGPL part. The current build statically links
-everything into one binary, which does not satisfy that. To comply, either
-build the AirPlay core as a **dynamic library** the app loads (the usual fix),
-or ship the object files so a user can relink. Either way you must also
-distribute the LGPL source and its license text. This is real work, not a
-paperwork step — worth deciding before writing marketing copy.
+**2a. LGPL relinking — done.** The AirPlay core (UxPlay `lib/`, LGPL-2.1) and
+libplist (LGPL-2.1) now live in a replaceable shared library,
+`Contents/Frameworks/libMirrorCore.dylib`, which exports only `mb_start` and
+`mb_stop`. The app binary contains none of that code. Users can rebuild the
+library with `./native/build.sh` and drop it in; license texts and instructions
+ship at `Contents/Resources/licenses/`. Verified: deleting the library stops the
+app from launching, and a rebuilt one works in its place.
+
+**2b. GPL-3.0 `playfair` — NOT solved, and it blocks a closed-source product.**
+`lib/playfair`, which performs the FairPlay handshake, is **GPL-3.0**, not LGPL.
+GPL-3.0 is strong copyleft: a shared library is *not* a cure for it (that
+accommodation is exactly what distinguishes LGPL). `playfair` is mandatory —
+`fairplay_decrypt()` recovers the media keys, so nothing mirrors without it.
+
+So MirrorDeck **cannot currently be sold as closed source**, regardless of the
+DRM question below. The realistic options are: release MirrorDeck itself under
+GPL-3.0 (selling is allowed, but buyers may redistribute the source); split the
+receiver into a separate GPL-3.0 process talking to a proprietary UI over a
+socket (legally contested, not a settled pattern); or don't sell. See
+[docs/legal-brief.md](docs/legal-brief.md).
 
 **3. FairPlay / DMCA exposure (needs a lawyer, not a commit).** Mirroring only
 works because `lib/playfair` implements Apple's FairPlay handshake, which was
@@ -210,7 +221,17 @@ allow, so they don't change the App-Store answer.
 
 ## Licensing note
 
-The vendored protocol core is LGPL-2.1 (UxPlay's `lib/`, descended from
-shairplay/RPiPlay); UxPlay's own renderer/app code (GPL-3.0) is not linked.
-The FairPlay handshake implementation (`playfair`) is reverse-engineered —
-fine for personal use; do your own diligence before shipping commercially.
+All third-party code is confined to `libMirrorCore.dylib`:
+
+| Component | Origin | License |
+|---|---|---|
+| AirPlay/RAOP core | UxPlay `lib/` | LGPL-2.1-or-later |
+| `playfair` (FairPlay) | UxPlay `lib/playfair/` | **GPL-3.0** |
+| llhttp | UxPlay `lib/llhttp/` | MIT |
+| libplist | libimobiledevice | LGPL-2.1-or-later |
+| libcrypto | OpenSSL 3 | Apache-2.0 |
+
+UxPlay's renderer/app code is not used. Note that `playfair` is GPL-3.0 and
+mandatory — see "Before it can be sold" above, [licenses/NOTICE.md](licenses/NOTICE.md),
+and [docs/legal-brief.md](docs/legal-brief.md). Fine for personal use; it is the
+central obstacle to selling.
