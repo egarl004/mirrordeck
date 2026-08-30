@@ -61,9 +61,17 @@ final class BluetoothHID: NSObject {
     // MARK: - Connection
 
     func connect(toAddress address: String) {
+        if case .connecting = state { return }   // one attempt at a time
         DebugLog.write("connect requested: \(address)")
         state = .connecting
         queue.async { [weak self] in self?.performConnect(address) }
+        // Bluetooth calls can stall for a long time when the phone is asleep;
+        // give up rather than leaving the UI reporting a connection forever.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in
+            guard let self, case .connecting = self.state else { return }
+            DebugLog.write("connect timed out")
+            self.state = .failed(reason: "The iPhone did not accept the connection. Is it unlocked?")
+        }
     }
 
     private func performConnect(_ address: String) {

@@ -106,9 +106,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Settings.alwaysOnTop = on
             self?.windowController.isAlwaysOnTop = on
         }
-        if let saved = Settings.bluetoothPhoneAddress {
-            hid.connect(toAddress: saved)
-        }
         // Restore the stored preference before the window is ever shown.
         windowController.isAlwaysOnTop = Settings.alwaysOnTop
         statusBar.setAlwaysOnTop(Settings.alwaysOnTop)
