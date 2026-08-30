@@ -1,19 +1,180 @@
+<div align="center">
+
 # MirrorDeck
 
-Wireless iOS screen mirroring to your Mac — with mouse control of the real phone.
+**Put your iPhone screen on your Mac over Wi-Fi — and drive it with your mouse and keyboard.**
 
-Free software under the [GPL-3.0](LICENSE).
+[![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS%2014%2B-lightgrey.svg)](#requirements)
+[![Release](https://img.shields.io/github/v/release/egarl004/mirrordeck)](https://github.com/egarl004/mirrordeck/releases/latest)
 
-The Mac advertises itself as an AirPlay screen-mirroring target (like Reflector),
-so it appears in the iPhone's Control Center → Screen Mirroring list. The mirrored
-screen shows up in a minimal, device-shaped borderless window. With WebDriverAgent
-running on the phone, you can tap, swipe, scroll, and type on the actual device
-using Simulator-style mouse interactions.
+</div>
 
-## Architecture
+MirrorDeck turns your Mac into a wireless screen-mirroring target. It appears in
+your iPhone's Control Center under **Screen Mirroring**, exactly like an Apple TV
+— pick it, and your phone shows up in a device-shaped window on your desktop.
+Nothing to install on the phone.
+
+With a bit more setup, you can also reach in and *use* the phone: click to tap,
+drag to swipe, type to type. It drives the real device, not a simulator.
+
+---
+
+## Installing
+
+Download the latest `.dmg` from **[Releases](https://github.com/egarl004/mirrordeck/releases/latest)**,
+open it, and drag MirrorDeck to Applications.
+
+The app is signed with a Developer ID and notarized by Apple, so it opens
+without a Gatekeeper warning.
+
+MirrorDeck lives in the **menu bar** — there is no Dock icon and no window until
+a phone connects. On first launch macOS will ask for **local network
+permission**; mirroring cannot work without it.
+
+Then on your iPhone: **Control Center → Screen Mirroring → "‹your Mac› (MirrorDeck)"**.
+
+### Requirements
+
+| | |
+|---|---|
+| **macOS** | 14 (Sonoma) or later — Apple silicon or Intel |
+| **iPhone** | Any iPhone on the same Wi-Fi network |
+| **For mirroring** | Nothing else. No phone-side install. |
+| **For control** | Xcode and your own Apple Developer account — see below |
+
+## Controlling your phone
+
+Mirroring is one-way: AirPlay carries video, not touches. Control is a separate
+channel going the other way, and iOS is strict about it — applications are not
+permitted to send touch events to other applications. The only route is
+[WebDriverAgent](https://github.com/appium/WebDriverAgent), Apple's own
+UI-testing tool, which is privileged because it runs as an XCUITest bundle.
+
+**This means control requires Xcode and your own Apple Developer account.**
+There is no way to engineer around it and no App Store path. Mirroring is the
+part that works for everyone; control is a bonus for people who already have a
+development environment.
+
+### Setup
+
+```sh
+git clone https://github.com/egarl004/mirrordeck.git
+cd mirrordeck
+./scripts/bootstrap.sh
+
+TEAM_ID=YOURTEAM ./scripts/wda.sh install   # once per phone
+TEAM_ID=YOURTEAM ./scripts/wda.sh run       # leave running while controlling
+```
+
+`TEAM_ID` is your 10-character Apple Developer Team ID (Xcode → Settings →
+Accounts, or the [developer portal](https://developer.apple.com/account)).
+`BUNDLE_PREFIX` overrides the bundle identifier prefix if you need to.
+
+`run` prints the address it bound, like
+`ServerURLHere->http://192.168.1.42:8100<-ServerURLHere`. In the mirror window,
+hover the top edge to reveal the toolbar, click **Enable Control**, and enter
+that IP. It is remembered per device and reconnects automatically next time.
+
+Re-run `run` after each phone reboot. The install itself lasts until your
+provisioning profile expires.
+
+### Interactions
+
+Simulator conventions, so they should already feel familiar:
+
+| Input | Action |
+|---|---|
+| Click | Tap |
+| Click and drag | Swipe / pan |
+| Click and hold | Long press |
+| Scroll | Scroll |
+| Type | Text input |
+| → / ← | Next / previous home screen page |
+| ↑ | Home |
+| ↓ | Scroll down |
+| ⌘⇧H | Home |
+
+## Known limitations
+
+Worth reading before you install — some of these are permanent.
+
+- **No audio.** Video only; audio frames are currently discarded.
+- **Gestures take about half a second.** That is the floor for touch injection
+  through XCUITest on a physical device. MirrorDeck already disables WDA's
+  post-gesture idle waits (which cut swipes from ~1.0s to ~0.65s) and sends
+  gestures fire-and-forget so the interface never blocks, but going below ~0.5s
+  would need a lower-level HID channel that this project does not use.
+- **The control helper needs restarting** every few hours, and whenever the
+  phone leaves Wi-Fi.
+- **The phone's IP is typed by hand** and goes stale when it rejoins the network.
+- **Control is developer-only**, permanently — see above.
+- **No Mac App Store.** The App Store accepts neither the AirPlay
+  implementation nor GPL-licensed code. Direct download is the only route, the
+  same one Reflector and AirServer take.
+
+## Troubleshooting
+
+**The menu bar icon doesn't appear.** On a Mac with a notch, when the menu bar
+is full macOS parks new status items *behind the notch*, where they cannot be
+seen or clicked. The app is running fine — quit a menu bar app or two to free
+space and it will show up. Once visible you can ⌘-drag it anywhere, and the
+position is remembered.
+
+**Control won't connect, or gestures stop working.** The WebDriverAgent runner
+degrades over long sessions. It can start reporting
+`Application local.pid.0 is not running` for `/window/size`, after which
+gestures fail with `point.x != INFINITY` because no screen size resolves.
+Restart it:
+
+```sh
+./scripts/wda.sh run
+```
+
+To confirm that's the cause, `curl -s http://‹phone-ip›:8100/status` will still
+report ready while `/session/‹id›/window/size` returns a stale element error.
+MirrorDeck recovers from an *expired session* on its own, but it cannot repair a
+degraded runner process on the phone.
+
+**Mirroring doesn't appear in Control Center.** Check both devices are on the
+same network, and that MirrorDeck has local network permission (System Settings
+→ Privacy & Security → Local Network).
+
+## Building from source
+
+Requires Xcode, plus Homebrew `openssl@3`, `libplist`, `cmake`, `pkg-config`.
+
+```sh
+./scripts/bootstrap.sh   # fetch UxPlay + WebDriverAgent at pinned commits
+./native/build.sh        # build the AirPlay core -> libMirrorCore.dylib
+swift build
+./.build/debug/MirrorDeck
+```
+
+To produce a distributable app and disk image:
+
+```sh
+./scripts/package.sh                 # -> dist/MirrorDeck.app + dist/MirrorDeck-<ver>.dmg
+NOTARIZE=1 ./scripts/package.sh      # also notarize and staple both
+```
+
+`package.sh` signs with a *Developer ID Application* certificate when one exists
+and falls back to ad-hoc signing otherwise — ad-hoc builds run locally but
+Gatekeeper blocks them elsewhere. Notarization needs stored credentials once:
+
+```sh
+xcrun notarytool store-credentials mirrordeck \
+    --apple-id you@example.com --team-id YOURTEAM
+```
+
+The app-specific password comes from
+[appleid.apple.com](https://appleid.apple.com) → Sign-In and Security →
+App-Specific Passwords.
+
+## How it works
 
 ```
-iPhone ──(AirPlay: Bonjour + pairing + FairPlay + RTSP/H.264)──▶ native/ C core
+iPhone ──(AirPlay: Bonjour + pairing + FairPlay + RTSP/H.264)──▶ libMirrorCore.dylib
                                                                      │ decrypted Annex-B H.264
                                                                      ▼
                                               Swift app: VideoPipeline ▶ AVSampleBufferDisplayLayer
@@ -21,217 +182,62 @@ iPhone ──(AirPlay: Bonjour + pairing + FairPlay + RTSP/H.264)──▶ nativ
 iPhone ◀──(HTTP: taps/swipes/keys via WebDriverAgent :8100)── WDAClient ◀─ mouse/keyboard
 ```
 
-- `vendor/UxPlay` — vendored [UxPlay](https://github.com/FDH2/UxPlay) sources.
-  Only its protocol core (`lib/`, LGPL-2.1) is compiled; its GStreamer renderer
-  is not used.
-- `native/` — `mirror_bridge.c` wraps the core behind a tiny start/stop +
-  callbacks C API; `build.sh` produces `native/build/libMirrorCore.a`
-  (protocol core + playfair + llhttp + dnssd + static libplist + libcrypto).
-- `Sources/MirrorDeck/` — the Mac app (menu bar shell, borderless mirror
-  window, H.264 → `AVSampleBufferDisplayLayer` pipeline, WDA client).
-- `vendor/WebDriverAgent` — Appium's WebDriverAgent, used for touch injection.
-  `scripts/wda.sh` builds, installs, and launches it.
+- **`native/`** — `mirror_bridge.c` wraps the vendored AirPlay protocol core
+  behind a two-function C API (`mb_start` / `mb_stop`), built as
+  `libMirrorCore.dylib`. All third-party code lives here and nowhere else.
+- **`Sources/MirrorDeck/`** — the app: menu bar shell, borderless mirror window,
+  H.264 → `AVSampleBufferDisplayLayer` pipeline (hardware decode, ~1 frame of
+  latency), and the WebDriverAgent client.
+- **`vendor/`** — [UxPlay](https://github.com/FDH2/UxPlay) and
+  [WebDriverAgent](https://github.com/appium/WebDriverAgent), fetched at pinned
+  commits by `scripts/bootstrap.sh` rather than committed.
+- **`web/`** — the project landing page.
 
-## Build & run
+## Roadmap
 
-Prereqs: Xcode, Homebrew `openssl@3`, `libplist`, `cmake`, `pkg-config`.
+- [ ] Audio playback (AAC-ELD decode via AudioToolbox)
+- [ ] Discover WebDriverAgent automatically instead of typing an IP, removing
+      both the manual step and the staleness when the phone's address changes
+- [ ] Keep the WDA runner alive, or at least detect its death from the Mac
+- [ ] H.265 support (feature bit 42 + HEVC format descriptions)
 
-```sh
-./native/build.sh   # build the AirPlay core (rerun only when native/ or vendor/ changes)
-swift build
-./.build/debug/MirrorDeck
-```
+Contributions welcome. The two roadmap items above about WebDriverAgent
+reliability are the highest-value places to start.
 
-The app lives in the menu bar (no Dock icon). On the iPhone: Control Center →
-Screen Mirroring → "<your Mac> (MirrorDeck)". The mirror window appears when
-video starts. macOS may show firewall / local-network prompts on first run —
-allow them.
+## License
 
-## Controlling the phone
+GPL-3.0 — see [LICENSE](LICENSE).
 
-Mirroring is one-way; AirPlay has no touch backchannel. Control uses
-[WebDriverAgent](https://github.com/appium/WebDriverAgent) (the XCUITest-based
-server Appium uses), running on the phone over Wi-Fi. `scripts/wda.sh` wraps
-the whole flow:
+MirrorDeck is GPL-3.0 because `playfair`, the FairPlay handshake implementation
+it depends on, is GPL-3.0 and cannot be removed: `fairplay_decrypt()` recovers
+the media keys, so nothing mirrors without it.
 
-```sh
-./scripts/wda.sh install   # build + sign + install the runner (once)
-./scripts/wda.sh run       # start the WDA server; leave running while controlling
-```
-
-Then in the mirror window, hover to reveal the toolbar → **Enable Control** →
-the phone's IP (prefilled from last use). It's remembered per device and
-reconnects automatically next time.
-
-### If control stops working
-
-The WebDriverAgent runner degrades over long sessions. After a few hours of use
-— app launches, expiring sessions, lock/unlock cycles — it can end up reporting
-`Application local.pid.0 is not running` for `/window/size`, and gestures then
-fail with `point.x != INFINITY` because no screen size can be resolved. The app
-cannot connect in that state.
-
-The fix is to restart the runner:
-
-```sh
-./scripts/wda.sh run
-```
-
-Check whether this is the problem with
-`curl -s http://<phone-ip>:8100/status`. If it reports ready but
-`curl -s http://<phone-ip>:8100/session/<sid>/window/size` returns a stale
-element error, the runner needs restarting. MirrorDeck now recovers on its own
-from an *expired session* (keep-awake detects it and reconnects), but it cannot
-repair a degraded runner process on the phone.
-
-`run` prints the server URL it bound, e.g.
-`ServerURLHere->http://192.168.1.197:8100<-ServerURLHere`. Signing uses team
-`HLL4A3K24N` and bundle prefix `com.emersongarland`; override with `TEAM_ID=` /
-`BUNDLE_PREFIX=` env vars. The runner must be re-launched (`run`) after each
-phone reboot; the install itself lasts until the provisioning profile expires.
-
-Interactions (Simulator conventions): click = tap, click-drag = swipe/pan,
-click-hold = long press, scroll = swipe, typing goes to the phone,
-⌘⇧H = Home button.
-
-Keyboard navigation (all verified against a physical iPhone 15 Pro):
-
-| Key | Action |
-|---|---|
-| → | Next home screen page (finger swipes right-to-left) |
-| ← | Previous page / back |
-| ↑ | Home button |
-| ↓ | Scroll content down |
-
-Arrow keys are intercepted before the text-input fallback — they carry
-private-use function characters that would otherwise be typed to the phone as
-garbage. Navigation is rate-limited to one gesture per 0.35s so holding a key
-(auto-repeat) can't flood the ~0.5s-per-gesture queue.
-
-### Latency
-
-Touch injection goes through XCUITest, which has a hard floor of ~0.5s per
-gesture on a physical device (measured: tap ~0.5s, swipe ~0.6–0.75s after
-tuning). Two things keep it usable:
-
-- On connect, MirrorDeck disables WDA's post-gesture idle/animation waits
-  (`waitForIdleTimeout`/`animationCoolOffTimeout` → 0), which cut swipes from
-  ~1.0s to ~0.65s.
-- Gestures are **fire-and-forget** — the Mac never blocks on that half-second,
-  so input stays fluid and gestures pipeline. The tap ripple is drawn
-  immediately as local feedback.
-
-Going below ~0.5s is not possible through WDA; it needs a lower-level HID
-injection channel (e.g. the on-device instruments/DVT services), which is a
-larger project and also outside App Store rules — see below.
-
-### Keep awake
-
-While control is connected, MirrorDeck polls the phone's lock state every 8s
-and re-unlocks if it auto-locked, so the mirror never drops to black. This is
-reactive (a brief black frame is possible before re-wake) because a periodic
-synthetic "nudge" tap would risk activating whatever is on screen. Truly
-preventing the screen from ever dimming requires an on-device app holding
-`isIdleTimerDisabled`, which is part of the productization path below.
-
-## Status / roadmap
-
-- [x] AirPlay receiver: Bonjour advertise, pairing, FairPlay, mirroring stream
-- [x] Hardware H.264 render via AVSampleBufferDisplayLayer (~1 frame latency)
-- [x] Device-shaped borderless window, hover toolbar, tap ripples, menu bar app
-- [x] WDA control client: tap / long-press / drag / scroll / type / Home
-- [x] Keyboard navigation: arrows for pages, Home, scroll
-- [x] App bundle, generated icon, signed disk image (`scripts/package.sh`)
-- [ ] Audio playback (AAC-ELD decode via AudioToolbox — frames currently dropped)
-- [ ] Auto-discover WDA instead of typing the phone's IP. The phone's address
-      changes when it rejoins Wi-Fi, so the stored host goes stale; discovering
-      the runner over Bonjour (or launching it via `go-ios`) would remove both
-      the manual step and the staleness.
-- [ ] Keep the WDA runner alive, or detect its death from the Mac. It degrades
-      after a few hours and dies outright when the phone leaves the network.
-- [ ] H.265 support (advertise feature bit 42 + HEVC format descriptions)
-
-## Packaging
-
-```sh
-./scripts/bootstrap.sh    # fetch vendored deps (first checkout only)
-./scripts/package.sh      # -> dist/MirrorDeck.app and dist/MirrorDeck-<ver>.dmg
-```
-
-Produces a self-contained bundle (no external dylibs — the AirPlay core,
-libplist, and libcrypto are all statically linked) with a generated icon,
-`LSUIElement` set for menu-bar-only operation, and the `NSBonjourServices` /
-`NSLocalNetworkUsageDescription` keys macOS requires to advertise on the local
-network. `VERSION=0.2.0 ./scripts/package.sh` sets the version.
-
-### Distribution
-
-**Signing.** `package.sh` uses a *Developer ID Application* certificate when one
-exists and falls back to ad-hoc signing otherwise. Ad-hoc builds run on the
-machine that made them, but Gatekeeper blocks them everywhere else, so a
-Developer ID certificate is required before sharing the app. Create one in
-Xcode: Settings → Accounts → Manage Certificates → **+** → Developer ID
-Application. `package.sh` picks it up automatically and enables the hardened
-runtime.
-
-**Notarization.** Apple scans and approves the build so it opens without
-warnings. Store credentials once, then package with `NOTARIZE=1`:
-
-```sh
-xcrun notarytool store-credentials mirrordeck \
-    --apple-id <you@example.com> --team-id HLL4A3K24N
-NOTARIZE=1 ./scripts/package.sh
-```
-
-The app-specific password comes from appleid.apple.com → Sign-In and Security →
-App-Specific Passwords.
-
-**Licensing.** MirrorDeck is GPL-3.0 (see `LICENSE`). That follows from
-`lib/playfair`, the FairPlay handshake implementation, which is GPL-3.0 and
-mandatory — `fairplay_decrypt()` recovers the media keys, so nothing mirrors
-without it. GPL-3.0 is strong copyleft and a shared library is not a cure for it
-(that accommodation is what distinguishes LGPL), so the combined work is
-GPL-3.0. Distributing the source alongside the app satisfies this.
-
-The separate LGPL-2.1 obligation is handled structurally: the AirPlay core and
-libplist live in a replaceable `Contents/Frameworks/libMirrorCore.dylib`
-exporting only `mb_start` and `mb_stop`, so anyone can rebuild it with
-`./native/build.sh` and substitute their own build. Verified — deleting the
-library stops the app launching, and a rebuilt one works in its place.
-
-**One thing engineering cannot settle.** `playfair` is a reverse-engineered
-implementation of Apple's FairPlay DRM. Distributing DRM-circumvention code
-carries risk under DMCA §1201 in the US, and that risk does not disappear
-because the software is free. [docs/legal-brief.md](docs/legal-brief.md)
-describes the code and the open questions for a lawyer; it is worth reading
-before publishing this anywhere public.
-
-## Platform limits worth knowing
-
-**No Mac App Store.** The App Store will not accept the reverse-engineered
-AirPlay implementation or the GPL-licensed code. Direct download is the only
-route — the same one Reflector, AirServer, and X-Mirage take.
-
-**Control is developer-only, permanently.** iOS does not let apps inject touch
-events into other apps. WebDriverAgent works only because it is a privileged
-XCUITest bundle, which means every user needs their own Apple Developer account
-and Xcode. There is no App Store path and no way to engineer around it, so
-mirroring is the feature that works for everyone and control is a bonus for
-people who already have a development environment.
-
-## Licensing note
-
-All third-party code is confined to `libMirrorCore.dylib`:
+Third-party components, all confined to `libMirrorCore.dylib`:
 
 | Component | Origin | License |
 |---|---|---|
 | AirPlay/RAOP core | UxPlay `lib/` | LGPL-2.1-or-later |
-| `playfair` (FairPlay) | UxPlay `lib/playfair/` | **GPL-3.0** |
+| `playfair` (FairPlay) | UxPlay `lib/playfair/` | GPL-3.0 |
 | llhttp | UxPlay `lib/llhttp/` | MIT |
 | libplist | libimobiledevice | LGPL-2.1-or-later |
 | libcrypto | OpenSSL 3 | Apache-2.0 |
 
-UxPlay's renderer/app code is not used. `playfair` is GPL-3.0 and mandatory,
-which is why MirrorDeck as a whole is GPL-3.0 — see [LICENSE](LICENSE),
-[licenses/NOTICE.md](licenses/NOTICE.md), and
-[docs/legal-brief.md](docs/legal-brief.md).
+The LGPL relinking obligation is met structurally: those components live in a
+replaceable shared library exporting only `mb_start` and `mb_stop`, so anyone
+can rebuild it with `./native/build.sh` and substitute their own build. See
+[licenses/NOTICE.md](licenses/NOTICE.md).
+
+### A note on FairPlay
+
+`playfair` is a reverse-engineered implementation of Apple's FairPlay DRM.
+Distributing DRM-circumvention code carries risk under DMCA §1201 in the United
+States, and that risk does not disappear because the software is free.
+[docs/legal-brief.md](docs/legal-brief.md) describes the code and the open
+questions in plain language. Read it before redistributing this.
+
+---
+
+Built on the work of [UxPlay](https://github.com/FDH2/UxPlay), whose AirPlay
+implementation makes the mirroring possible, and
+[Appium's WebDriverAgent](https://github.com/appium/WebDriverAgent) for touch
+input. Not affiliated with or endorsed by Apple Inc.

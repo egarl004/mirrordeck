@@ -5,12 +5,39 @@
 #   ./scripts/wda.sh run       # launch the WDA server (keep running while you control the phone)
 #   ./scripts/wda.sh ip        # print the phone's Wi-Fi IP for MirrorDeck's Enable Control field
 #
-# Signing uses the personal team below; override with TEAM_ID=... in the environment.
+# Signing uses your own Apple Developer team, detected from the keychain.
+# Override with TEAM_ID=... and BUNDLE_PREFIX=... in the environment.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-TEAM_ID="${TEAM_ID:-HLL4A3K24N}"
-BUNDLE_PREFIX="${BUNDLE_PREFIX:-com.emersongarland}"
+# The 10-character code in parentheses. Prefer "Developer ID Application",
+# where it is reliably the Team ID; on "Apple Development" identities it can be
+# a personal user identifier instead, which provisioning would reject.
+detect_team() {
+    local ids
+    ids="$(security find-identity -v -p codesigning 2>/dev/null)"
+    printf '%s\n' "$ids" | grep "Developer ID Application" \
+        | grep -oE '\([A-Z0-9]{10}\)' | tr -d '()' | head -1 && return
+    printf '%s\n' "$ids" | grep -oE '\([A-Z0-9]{10}\)' | tr -d '()' | head -1
+}
+
+TEAM_ID="${TEAM_ID:-$(detect_team)}"
+if [ -z "$TEAM_ID" ]; then
+    cat >&2 <<'MSG'
+No Apple Developer team found.
+
+WebDriverAgent runs on the phone as a signed test bundle, so it needs your own
+Apple Developer account. Open Xcode -> Settings -> Accounts, add your Apple ID,
+then re-run. To choose a specific team explicitly:
+
+    TEAM_ID=XXXXXXXXXX ./scripts/wda.sh install
+MSG
+    exit 1
+fi
+
+# Neutral default; WDA ships com.facebook.* identifiers, which cannot be
+# registered under another team. Set BUNDLE_PREFIX if this one is taken.
+BUNDLE_PREFIX="${BUNDLE_PREFIX:-com.mirrordeck}"
 WDA_DIR="vendor/WebDriverAgent"
 DERIVED="${DERIVED:-$PWD/.build/wda-dd}"
 
