@@ -84,13 +84,17 @@ final class MirrorVideoView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         guard !isMovingWindow else { return }
-        inputController?.mouseMoved(dx: event.deltaX, dy: event.deltaY)
+        sendPointerPosition(for: event)
         inputController?.mouseDragged(to: convert(event.locationInWindow, from: nil))
     }
 
     override func mouseMoved(with event: NSEvent) {
-        DebugLog.write("view mouseMoved d=(\(event.deltaX), \(event.deltaY))")
-        inputController?.mouseMoved(dx: event.deltaX, dy: event.deltaY)
+        // The tracking area is .activeAlways so the pointer keeps working while
+        // another app is frontmost, but that also delivers movement when this
+        // window is not focused at all. Only drive the phone when the window is
+        // key and the cursor is actually over the mirrored image.
+        guard window?.isKeyWindow == true else { return }
+        sendPointerPosition(for: event)
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -125,6 +129,18 @@ final class MirrorVideoView: NSView {
         if inputController?.keyDown(event) != true {
             super.keyDown(with: event)
         }
+    }
+
+    /// Maps the cursor onto the mirrored image as a normalised 0...1 point.
+    /// Movement outside the image is ignored so the phone's pointer is not
+    /// dragged around while the cursor is over the window's letterboxing.
+    private func sendPointerPosition(for event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let rect = videoRect
+        guard rect.width > 0, rect.height > 0, rect.contains(point) else { return }
+        inputController?.pointerMoved(toNormalized: CGPoint(
+            x: (point.x - rect.minX) / rect.width,
+            y: (point.y - rect.minY) / rect.height))
     }
 
     // MARK: - Tap ripple

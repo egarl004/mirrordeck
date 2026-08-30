@@ -37,15 +37,12 @@ final class InputController {
     // MARK: - Mouse
 
     /// Relative pointer movement, for the Bluetooth transport.
-    func mouseMoved(dx: CGFloat, dy: CGFloat) {
-        guard usingBluetooth else {
-            DebugLog.write("mouseMoved ignored — bluetooth not connected")
-            return
-        }
-        let ix = Int(dx.rounded()), iy = Int(dy.rounded())
-        guard ix != 0 || iy != 0 else { return }
-        DebugLog.write("pointer dx=\(ix) dy=\(iy)")
-        hid?.movePointer(dx: ix, dy: iy)
+    /// `point` is normalised 0...1 within the mirrored image. The phone's
+    /// pointer is absolute, so it lands where the cursor is instead of drifting
+    /// away like a trackpad.
+    func pointerMoved(toNormalized point: CGPoint) {
+        guard usingBluetooth else { return }
+        hid?.setPointer(x: Double(point.x), y: Double(point.y))
     }
 
     static let debug = ProcessInfo.processInfo.environment["MIRRORDECK_DEBUG"] == "1"

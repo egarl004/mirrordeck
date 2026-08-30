@@ -1,4 +1,5 @@
 import AppKit
+import IOBluetooth
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let receiver = AirPlayReceiver.shared
@@ -19,6 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         wireVideo()
         wireControl()
+        // Bluetooth stays untouched until the user selects a phone from the
+        // menu — no advertising, no dialling, nothing automatic at launch.
         wireUI()
         startReceiver()
     }
@@ -63,13 +66,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.windowController.usingBluetooth = true
                 self.windowController.setControlState(.connected(screenSize: .zero))
                 self.statusBar.setBluetoothState(true, name: name)
+                self.statusBar.setBluetoothStatus("connected to \(name)")
                 NSLog("[MirrorDeck] Bluetooth input connected to %@", name)
             case .failed(let reason):
                 self.windowController.usingBluetooth = false
                 self.statusBar.setBluetoothState(false, name: nil)
+                self.statusBar.setBluetoothStatus(reason)
                 NSLog("[MirrorDeck] Bluetooth input unavailable: %@", reason)
-            case .connecting, .idle:
-                break
+            case .connecting:
+                self.statusBar.setBluetoothStatus("connecting…")
+            case .idle:
+                self.statusBar.setBluetoothStatus("off")
             }
         }
         inputController.viewToDevice = { [weak self] viewPoint in

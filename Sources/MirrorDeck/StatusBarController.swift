@@ -8,6 +8,9 @@ final class StatusBarController {
     private let showItem: NSMenuItem
     private let onTopItem: NSMenuItem
     private let bluetoothItem: NSMenuItem
+    /// Live Bluetooth input status, so a failure is visible without the log.
+    private let bluetoothStatusItem = NSMenuItem(
+        title: "Bluetooth input: off", action: nil, keyEquivalent: "")
 
     var onShowWindow: (() -> Void)?
     var onQuit: (() -> Void)?
@@ -55,6 +58,7 @@ final class StatusBarController {
         menu.addItem(onTopItem)
         bluetoothItem.submenu = buildBluetoothMenu()
         menu.addItem(bluetoothItem)
+        menu.addItem(bluetoothStatusItem)
         menu.addItem(.separator())
         menu.addItem(quitItem)
         menu.autoenablesItems = false
@@ -99,6 +103,12 @@ final class StatusBarController {
         bluetoothItem.title = connected
             ? "Control over Bluetooth — \(name ?? "on")"
             : "Control over Bluetooth"
+    }
+
+    /// Shown directly under the Bluetooth menu item. Failure reasons are
+    /// surfaced here rather than only in the log.
+    func setBluetoothStatus(_ text: String) {
+        bluetoothStatusItem.title = "Bluetooth input: \(text)"
     }
 
     /// Reflects the current state in the menu's checkmark.
