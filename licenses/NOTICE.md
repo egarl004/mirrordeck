@@ -62,10 +62,5 @@ closed-source product.** Options, in rough order of practicality:
 3. **Obtain different rights to a FairPlay implementation.** No permissively
    licensed one is known to exist.
 
-Separately, and independent of licensing: `playfair` is a reverse-engineered
-implementation of Apple's FairPlay DRM. Distributing DRM-circumvention code
-commercially carries risk under DMCA §1201 in the United States. See the
-technical brief at `docs/legal-brief.md`.
-
 **None of the above is legal advice.** It is an accurate description of what the
 code is and where it came from, prepared so a qualified attorney can evaluate it.

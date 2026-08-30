@@ -253,12 +253,6 @@ device can show its own screen on its owner's computer. Every open-source AirPla
 receiver depends on the same handshake, and the commercial ones reverse-engineer
 it too.
 
-That said, `playfair` was produced by reverse engineering, and distributing
-circumvention code carries risk under DMCA §1201 in the United States — a risk
-that does not disappear because the software is free.
-[docs/legal-brief.md](docs/legal-brief.md) lays out the code and the open
-questions in plain language. Read it before redistributing this.
-
 Following the practice of [UxPlay](https://github.com/FDH2/UxPlay) and
 [RPiPlay](https://github.com/FD-/RPiPlay), on which this work builds:
 
