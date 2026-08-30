@@ -254,6 +254,7 @@ extension BluetoothHID: IOBluetoothL2CAPChannelDelegate {
             }
             keep.resume()
             keepAliveTimer = keep
+            NSLog("[MirrorDeck] HID interrupt channel open — input is live")
             state = .connected(deviceName: device?.name ?? "iPhone")
         }
     }
@@ -262,7 +263,10 @@ extension BluetoothHID: IOBluetoothL2CAPChannelDelegate {
         if channel.psm == interruptPSM {
             keepAliveTimer?.cancel(); keepAliveTimer = nil
             interruptChannel = nil
-            if isConnected { state = .failed(reason: "The iPhone closed the input connection") }
+            if isConnected {
+                NSLog("[MirrorDeck] HID channel closed by the phone")
+                state = .failed(reason: "The iPhone closed the input connection")
+            }
         }
         if channel.psm == controlPSM { controlChannel = nil }
     }

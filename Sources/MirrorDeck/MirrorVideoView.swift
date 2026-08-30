@@ -31,7 +31,7 @@ final class MirrorVideoView: NSView {
         // pointer follows the mouse without a button held down.
         addTrackingArea(NSTrackingArea(
             rect: .zero,
-            options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect],
+            options: [.mouseMoved, .activeAlways, .inVisibleRect],
             owner: self, userInfo: nil))
     }
 

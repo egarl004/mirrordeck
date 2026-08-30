@@ -62,6 +62,10 @@ final class MirrorWindowController: NSWindowController {
         window.isReleasedWhenClosed = false
         window.collectionBehavior = [.fullScreenNone]
         window.minSize = NSSize(width: 180, height: 320)
+        // Off by default, and without it mouseMoved never reaches the video
+        // view — so the phone's pointer gets no movement and AssistiveTouch
+        // hides it after a few idle seconds.
+        window.acceptsMouseMovedEvents = true
         super.init(window: window)
         buildContent()
     }

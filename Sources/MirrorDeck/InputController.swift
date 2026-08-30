@@ -39,8 +39,15 @@ final class InputController {
     /// Relative pointer movement, for the Bluetooth transport.
     func mouseMoved(dx: CGFloat, dy: CGFloat) {
         guard usingBluetooth else { return }
-        hid?.movePointer(dx: Int(dx.rounded()), dy: Int(dy.rounded()))
+        let ix = Int(dx.rounded()), iy = Int(dy.rounded())
+        guard ix != 0 || iy != 0 else { return }
+        if InputController.debug {
+            NSLog("[MirrorDeck] pointer dx=%d dy=%d", ix, iy)
+        }
+        hid?.movePointer(dx: ix, dy: iy)
     }
+
+    static let debug = ProcessInfo.processInfo.environment["MIRRORDECK_DEBUG"] == "1"
 
     func mouseDown(at viewPoint: CGPoint) {
         if usingBluetooth { hid?.setMouseButton(true); return }
