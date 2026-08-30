@@ -23,12 +23,8 @@ domain, and point a DNS CNAME record at `<user>.github.io`.
       it is private.
 - [ ] **Create a release** so `/releases/latest` resolves. The Download button
       points there.
-- [ ] **Sign and notarize the build first.** An ad-hoc signed app triggers a
-      Gatekeeper warning that most people will not click through — see the
-      README's "Before it can be sold" section.
+- [x] **Sign and notarize the build.** Done — `NOTARIZE=1 ./scripts/package.sh`
+      produces a build Gatekeeper accepts.
+- [x] **Adopt a licence.** Done — GPL-3.0, see `LICENSE`.
 - [ ] **Decide on the donation section.** `index.html` has a clearly marked
       `#support` section; delete it to launch without any donation mechanism.
-      See `docs/legal-brief.md` section 6 for why that distinction may matter.
-- [ ] **Resolve the licensing question.** The page states GPL-3.0, which is the
-      favoured model but is not yet formally adopted — there is no `LICENSE`
-      file in the repository root.
