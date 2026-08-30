@@ -229,11 +229,41 @@ can rebuild it with `./native/build.sh` and substitute their own build. See
 
 ### A note on FairPlay
 
-`playfair` is a reverse-engineered implementation of Apple's FairPlay DRM.
-Distributing DRM-circumvention code carries risk under DMCA §1201 in the United
-States, and that risk does not disappear because the software is free.
-[docs/legal-brief.md](docs/legal-brief.md) describes the code and the open
+Two different things share the FairPlay name, and they are worth separating.
+
+**FairPlay Streaming** is the content DRM protecting Netflix, Disney+ and Apple
+TV+. It needs hardware-backed keys. MirrorDeck does not have them and cannot
+obtain them — protected video will black out when mirrored, exactly as it does
+with every other third-party receiver. iOS excludes protected layers from the
+mirrored capture before anything is encoded, so this is enforced by the phone,
+not by us.
+
+**FairPlay SAP** is the session handshake, and it is what `playfair` implements.
+It answers an authentication challenge so the phone will release the key for
+*its own screen*. That is all it does: `fairplay_decrypt()` turns the 72-byte
+key the phone sends during setup into the 16-byte AES key for the mirroring
+stream. It is not optional — without it no session starts at all.
+
+So MirrorDeck decrypts no copyrighted work. It authenticates to a protocol so a
+device can show its own screen on its owner's computer. Every open-source AirPlay
+receiver depends on the same handshake, and the commercial ones reverse-engineer
+it too.
+
+That said, `playfair` was produced by reverse engineering, and distributing
+circumvention code carries risk under DMCA §1201 in the United States — a risk
+that does not disappear because the software is free.
+[docs/legal-brief.md](docs/legal-brief.md) lays out the code and the open
 questions in plain language. Read it before redistributing this.
+
+Following the practice of [UxPlay](https://github.com/FDH2/UxPlay) and
+[RPiPlay](https://github.com/FD-/RPiPlay), on which this work builds:
+
+> This project is built from freely available information and is intended for
+> educational purposes. It is the user's responsibility to comply with local
+> law. It depends on a third-party GPL library for the FairPlay handshake whose
+> legal status is unclear. If you represent Apple and object to that library or
+> its use here, please open an issue or contact the maintainer and appropriate
+> steps will be taken.
 
 ---
 

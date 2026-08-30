@@ -80,13 +80,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Set MIRRORDECK_DEBUG=1 to log the AirPlay handshake and where the menu
+    /// bar icon was placed. Both are otherwise invisible when something is wrong.
+    static let debugEnabled = ProcessInfo.processInfo.environment["MIRRORDECK_DEBUG"] == "1"
+
     private func startReceiver() {
         let name = Settings.receiverName
-        if receiver.start(name: name) {
+        if receiver.start(name: name, debug: AppDelegate.debugEnabled) {
             statusBar.setReceiverState("Visible as “\(name)”")
+            NSLog("[MirrorDeck] receiver started, advertising as “%@”", name)
         } else {
             statusBar.setReceiverState("Receiver failed to start")
+            NSLog("[MirrorDeck] RECEIVER FAILED TO START")
         }
+        // Placement is only decided once the menu bar has laid out.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self else { return }
+            if AppDelegate.debugEnabled { self.statusBar.logPlacement() }
+            if self.statusBar.isHiddenBehindNotch { self.warnIconHidden() }
+        }
+    }
+
+    /// Without this the app looks simply broken: no icon, no window, no reason.
+    /// Shown once, since the remedy is a change to the user's menu bar.
+    private func warnIconHidden() {
+        let key = "didWarnIconBehindNotch"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+
+        let alert = NSAlert()
+        alert.messageText = "MirrorDeck's menu bar icon is hidden behind the notch"
+        alert.informativeText = """
+            MirrorDeck is running, but your menu bar is full, so macOS placed \
+            its icon behind the camera notch where it cannot be seen or clicked.
+
+            Quit or hide one or two other menu bar apps and it will appear. You \
+            can then ⌘-drag it anywhere, and it will stay there.
+
+            Mirroring works either way — pick this Mac from Screen Mirroring on \
+            your iPhone and the window will open on its own.
+            """
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 
     // MARK: - Receiver events
