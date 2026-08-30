@@ -61,22 +61,27 @@ final class BluetoothHID: NSObject {
     // MARK: - Connection
 
     func connect(toAddress address: String) {
+        DebugLog.write("connect requested: \(address)")
         state = .connecting
         queue.async { [weak self] in self?.performConnect(address) }
     }
 
     private func performConnect(_ address: String) {
         guard let dev = IOBluetoothDevice(addressString: address) else {
+            DebugLog.write("no IOBluetoothDevice for \(address)")
             state = .failed(reason: "No Bluetooth device at \(address)")
             return
         }
+        DebugLog.write("device \(dev.name ?? "?") paired=\(dev.isPaired()) connected=\(dev.isConnected())")
         guard dev.isPaired() else {
+            DebugLog.write("refusing: not paired")
             state = .failed(reason: "\(dev.name ?? "That iPhone") is not paired with this Mac")
             return
         }
         device = dev
 
         publishServiceRecord()
+        DebugLog.write("service record: \(serviceRecord != nil ? "published" : "FAILED")")
         assertClassOfDevice()
         // The class of device setting is time-limited, so keep renewing it.
         let cod = DispatchSource.makeTimerSource(queue: queue)
@@ -85,14 +90,33 @@ final class BluetoothHID: NSObject {
         cod.resume()
         classOfDeviceTimer = cod
 
-        guard dev.openConnection() == kIOReturnSuccess else {
+        // openConnection blocks, so it stays off the main thread.
+        let opened = dev.openConnection()
+        DebugLog.write("openConnection -> \(opened)")
+        guard opened == kIOReturnSuccess else {
             state = .failed(reason: "Could not reach \(dev.name ?? "the iPhone"). Is it awake and in range?")
             return
         }
-        var control: IOBluetoothL2CAPChannel?
-        var interrupt: IOBluetoothL2CAPChannel?
-        _ = dev.openL2CAPChannelAsync(&control, withPSM: controlPSM, delegate: self)
-        _ = dev.openL2CAPChannelAsync(&interrupt, withPSM: interruptPSM, delegate: self)
+        // Channel opening must happen on the main thread: IOBluetooth delivers
+        // its delegate callbacks on a run loop, and a dispatch queue has none —
+        // the calls succeed and l2capChannelOpenComplete is simply never sent.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            // Stagger the two channels. Opening both at once does not work;
+            // HID expects control to come up first, then interrupt.
+            var control: IOBluetoothL2CAPChannel?
+            let rc = dev.openL2CAPChannelAsync(&control, withPSM: self.controlPSM, delegate: self)
+            self.controlChannel = control
+            DebugLog.write("openL2CAP control -> \(rc)")
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                guard let self else { return }
+                var interrupt: IOBluetoothL2CAPChannel?
+                let ri = dev.openL2CAPChannelAsync(&interrupt, withPSM: self.interruptPSM, delegate: self)
+                self.interruptChannel = interrupt
+                DebugLog.write("openL2CAP interrupt -> \(ri)")
+            }
+        }
     }
 
     func disconnect() {
@@ -238,7 +262,8 @@ final class BluetoothHID: NSObject {
 // MARK: - Channel delegate
 
 extension BluetoothHID: IOBluetoothL2CAPChannelDelegate {
-    func l2capChannelOpenComplete(_ channel: IOBluetoothL2CAPChannel!, status error: IOReturn) {
+    @objc func l2capChannelOpenComplete(_ channel: IOBluetoothL2CAPChannel!, status error: IOReturn) {
+        DebugLog.write("channel PSM 0x\(String(channel.psm, radix: 16)) status=\(error)")
         guard error == kIOReturnSuccess else {
             state = .failed(reason: "The iPhone refused the input connection")
             return
@@ -262,7 +287,7 @@ extension BluetoothHID: IOBluetoothL2CAPChannelDelegate {
         }
     }
 
-    func l2capChannelClosed(_ channel: IOBluetoothL2CAPChannel!) {
+    @objc func l2capChannelClosed(_ channel: IOBluetoothL2CAPChannel!) {
         if channel.psm == interruptPSM {
             keepAliveTimer?.cancel(); keepAliveTimer = nil
             interruptChannel = nil

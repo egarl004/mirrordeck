@@ -93,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusBar.onSelectBluetoothPhone = { [weak self] address in
             guard let self else { return }
             if let address {
+                DebugLog.write("menu: selected phone \(address)")
                 Settings.bluetoothPhoneAddress = address
                 self.hid.connect(toAddress: address)
             } else {
