@@ -10,11 +10,14 @@ final class VideoPipeline {
     /// Reported on the main thread whenever the coded video size changes.
     var onDimensions: ((Int, Int) -> Void)?
 
+    static let debugEnabled = ProcessInfo.processInfo.environment["MIRRORDECK_DEBUG"] == "1"
+
     private let queue = DispatchQueue(label: "mirrordeck.video", qos: .userInteractive)
     private var formatDescription: CMVideoFormatDescription?
     private var sps: Data?
     private var pps: Data?
     private var lastReportedSize: (Int, Int) = (0, 0)
+    private var framesSeen = 0
 
     /// Safe to call from any thread; copies the frame and processes async.
     func handleAccessUnit(_ bytes: UnsafePointer<UInt8>, _ length: Int) {
@@ -46,7 +49,15 @@ final class VideoPipeline {
         var vclUnits: [Data] = []
         var parameterSetsChanged = false
 
-        for nal in VideoPipeline.splitAnnexB(frame) {
+        let nals = VideoPipeline.splitAnnexB(frame)
+        if VideoPipeline.debugEnabled && framesSeen < 5 {
+            let types = nals.map { String(($0.first ?? 0) & 0x1F) }.joined(separator: ",")
+            NSLog("[MirrorDeck] video frame %d: %d bytes, %d NAL(s), types=[%@]",
+                  framesSeen, frame.count, nals.count, types)
+        }
+        framesSeen += 1
+
+        for nal in nals {
             guard let first = nal.first else { continue }
             let nalType = first & 0x1F
             switch nalType {
@@ -67,12 +78,16 @@ final class VideoPipeline {
         guard let formatDescription, !vclUnits.isEmpty else { return }
         guard let sampleBuffer = makeSampleBuffer(vclUnits, format: formatDescription) else { return }
 
-        if let layer = displayLayer {
-            if layer.status == .failed {
-                layer.flush()
-            }
-            layer.enqueue(sampleBuffer)
+        guard let layer = displayLayer else {
+            if framesSeen < 3 { NSLog("[MirrorDeck] no display layer — frames are being dropped") }
+            return
         }
+        if layer.status == .failed {
+            NSLog("[MirrorDeck] display layer failed: %@",
+                  layer.error?.localizedDescription ?? "unknown")
+            layer.flush()
+        }
+        layer.enqueue(sampleBuffer)
     }
 
     private func rebuildFormatDescription() {
@@ -94,8 +109,16 @@ final class VideoPipeline {
                     formatDescriptionOut: &format)
             }
         }
-        guard status == noErr, let format else { return }
+        guard status == noErr, let format else {
+            NSLog("[MirrorDeck] format description FAILED (status %d) sps=%d pps=%d bytes",
+                  Int(status), sps.count, pps.count)
+            return
+        }
         formatDescription = format
+        if VideoPipeline.debugEnabled {
+            let d = CMVideoFormatDescriptionGetDimensions(format)
+            NSLog("[MirrorDeck] format description ready: %dx%d", d.width, d.height)
+        }
 
         let dims = CMVideoFormatDescriptionGetDimensions(format)
         let size = (Int(dims.width), Int(dims.height))

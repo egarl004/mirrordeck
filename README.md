@@ -115,11 +115,15 @@ Worth reading before you install — some of these are permanent.
 
 ## Troubleshooting
 
-**The menu bar icon doesn't appear.** On a Mac with a notch, when the menu bar
-is full macOS parks new status items *behind the notch*, where they cannot be
-seen or clicked. The app is running fine — quit a menu bar app or two to free
-space and it will show up. Once visible you can ⌘-drag it anywhere, and the
-position is remembered.
+**The menu bar icon doesn't appear.** On a Mac with a notch, macOS can place a
+new status item *behind the notch*, where it renders as nothing and cannot be
+clicked — even with free space beside it. MirrorDeck seeds a menu bar position
+on first launch to avoid that. If the icon is still missing, your menu bar is
+genuinely full: quit a menu bar app or two. You can ⌘-drag the icon anywhere
+afterwards and the position is remembered.
+
+Run with `MIRRORDECK_DEBUG=1` to have the app report exactly where it placed the
+icon and whether that is behind the notch.
 
 **Control won't connect, or gestures stop working.** The WebDriverAgent runner
 degrades over long sessions. It can start reporting

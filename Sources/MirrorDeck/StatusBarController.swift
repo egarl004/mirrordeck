@@ -10,12 +10,21 @@ final class StatusBarController {
     var onShowWindow: (() -> Void)?
     var onQuit: (() -> Void)?
 
+    private static let autosaveName = "MirrorDeckStatusItem"
+
     init() {
+        // Given no stored preference, macOS picks a slot for a new item that on
+        // a full menu bar can land behind the camera notch, where it renders as
+        // nothing and cannot be clicked. Seeding a position once puts it in the
+        // ordinary run of menu bar icons instead. Only seeded when absent, so a
+        // position the user ⌘-drags to (saved under autosaveName) always wins.
+        let positionKey = "NSStatusItem Preferred Position \(Self.autosaveName)"
+        if UserDefaults.standard.object(forKey: positionKey) == nil {
+            UserDefaults.standard.set(50.0, forKey: positionKey)
+        }
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        // Remembers where the user ⌘-drags the icon. Matters on notched Macs:
-        // when the menu bar is full macOS parks new items behind the notch,
-        // and without this the icon would return there on every launch.
-        statusItem.autosaveName = "MirrorDeckStatusItem"
+        statusItem.autosaveName = Self.autosaveName
         statusItem.button?.image = NSImage(
             systemSymbolName: "iphone.gen3",
             accessibilityDescription: "MirrorDeck")
