@@ -8,6 +8,9 @@ final class WDAClient {
         case disconnected
         case connecting
         case connected(screenSize: CGSize) // in device points
+        /// Carries why, so the window can say what went wrong rather than
+        /// silently reverting to a disconnected state.
+        case failed(reason: String)
     }
 
     private(set) var state: State = .disconnected {
@@ -89,13 +92,16 @@ final class WDAClient {
         guard let response = request(
             "POST", "/session",
             body: ["capabilities": ["alwaysMatch": [String: String]()]]) else {
-            state = .disconnected
+            // Nothing answered on port 8100. Almost always the runner is not
+            // running, or the phone's address changed since it was entered.
+            let host = baseURL?.host ?? "the phone"
+            state = .failed(reason: "No WebDriverAgent at \(host). Run ./scripts/wda.sh run")
             return
         }
         let sid = (response["sessionId"] as? String)
             ?? ((response["value"] as? [String: Any])?["sessionId"] as? String)
         guard let sid else {
-            state = .disconnected
+            state = .failed(reason: "WebDriverAgent refused a session")
             return
         }
         sessionID = sid
@@ -110,7 +116,9 @@ final class WDAClient {
 
         guard let screenSize = fetchScreenSize(sessionID: sid) else {
             sessionID = nil
-            state = .disconnected
+            // The runner degrades over long sessions and starts reporting a
+            // stale element here; restarting it is the only cure.
+            state = .failed(reason: "WebDriverAgent is not responding properly — restart it")
             return
         }
         startKeepAwake()

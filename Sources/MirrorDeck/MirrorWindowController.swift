@@ -165,6 +165,14 @@ final class MirrorWindowController: NSWindowController {
         case .connected:
             controlDot.layer?.backgroundColor = NSColor.systemGreen.cgColor
             controlButton.title = "Control On"
+            controlButton.toolTip = nil
+        case .failed(let reason):
+            controlDot.layer?.backgroundColor = NSColor.systemRed.cgColor
+            controlButton.title = "Control Unavailable"
+            // The reason is long for a toolbar button, so it goes in the tooltip
+            // and the log; the red dot is what carries at a glance.
+            controlButton.toolTip = reason
+            NSLog("[MirrorDeck] control unavailable: %@", reason)
         }
     }
 

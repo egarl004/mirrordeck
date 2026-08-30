@@ -114,6 +114,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             windowController.setDeviceName("Preview")
             windowController.setVideoDimensions(width: 1179, height: 2556)
             windowController.present()
+            // MIRRORDECK_PREVIEW_HOST exercises the control states without a
+            // phone — point it at an unreachable address to see the failure UI.
+            if let host = ProcessInfo.processInfo.environment["MIRRORDECK_PREVIEW_HOST"] {
+                wda.connect(host: host)
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
                 guard let self, let window = self.windowController.window else { return }
                 let video = self.windowController.videoView.frame
@@ -186,7 +191,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch wda.state {
         case .connected, .connecting:
             wda.disconnect()
-        case .disconnected:
+        case .disconnected, .failed:
+            // Reopen the setup popover so the host can be corrected after a
+            // failure, rather than leaving the button inert.
             showControlSetup()
         }
     }
