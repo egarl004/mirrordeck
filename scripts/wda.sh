@@ -105,8 +105,43 @@ cmd_run() {
     udid="$(resolve_device)"
     run="$(xctestrun_path)"
     [ -n "$run" ] || { echo "No xctestrun; run '$0 install' first." >&2; exit 1; }
+
+    # The runner dies on its own after roughly an hour, reporting only that the
+    # device connection was invalidated — no timeout, no other explanation. The
+    # cause is unconfirmed (the phone sleeping and dropping Wi-Fi is the leading
+    # theory), so rather than guess at a cure this supervises and restarts it,
+    # which works whatever the reason. NO_SUPERVISE=1 runs it once instead.
     echo "Starting WebDriverAgent on $udid (Ctrl-C to stop)…"
-    xcodebuild test-without-building -xctestrun "$run" -destination "id=$udid"
+    trap 'echo; echo "Stopped."; exit 0' INT TERM
+
+    local attempt=0 started
+    while true; do
+        attempt=$((attempt + 1))
+        [ "$attempt" -gt 1 ] && echo "── restart #$((attempt - 1)) ─────────────────────────"
+        started=$(date +%s)
+
+        # -test-timeouts-enabled NO removes one possible cause for free; the
+        # server is meant to run indefinitely, so no test timeout should apply.
+        xcodebuild test-without-building \
+            -xctestrun "$run" \
+            -destination "id=$udid" \
+            -test-timeouts-enabled NO || true
+
+        [ "${NO_SUPERVISE:-0}" = "1" ] && return 0
+
+        echo
+        echo "WebDriverAgent stopped after $(( ($(date +%s) - started) / 60 )) minutes."
+        # Wait for the phone to come back rather than spinning against nothing.
+        # Query the device directly: `devicectl list` prints identifiers, not
+        # hardware UDIDs, so matching its output against $udid never succeeds.
+        until xcrun devicectl device info details --device "$udid" \
+              >/dev/null 2>&1; do
+            echo "  waiting for the phone to reappear on the network…"
+            sleep 30
+        done
+        echo "  phone is back; restarting in 5s"
+        sleep 5
+    done
 }
 
 cmd_ip() {
