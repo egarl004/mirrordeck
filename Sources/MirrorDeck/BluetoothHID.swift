@@ -164,7 +164,10 @@ final class BluetoothHID: NSObject {
     /// 0xA1 is the HIDP header: DATA | INPUT.
     private func write(_ bytes: [UInt8]) {
         queue.async { [weak self] in
-            guard let channel = self?.interruptChannel else { return }
+            guard let channel = self?.interruptChannel else {
+                DebugLog.write("write dropped — no interrupt channel")
+                return
+            }
             var packet = bytes
             _ = packet.withUnsafeMutableBytes {
                 channel.writeSync($0.baseAddress!, length: UInt16($0.count))
@@ -254,7 +257,7 @@ extension BluetoothHID: IOBluetoothL2CAPChannelDelegate {
             }
             keep.resume()
             keepAliveTimer = keep
-            NSLog("[MirrorDeck] HID interrupt channel open — input is live")
+            DebugLog.write("HID interrupt channel open — input is live")
             state = .connected(deviceName: device?.name ?? "iPhone")
         }
     }
@@ -264,7 +267,7 @@ extension BluetoothHID: IOBluetoothL2CAPChannelDelegate {
             keepAliveTimer?.cancel(); keepAliveTimer = nil
             interruptChannel = nil
             if isConnected {
-                NSLog("[MirrorDeck] HID channel closed by the phone")
+                DebugLog.write("HID channel closed by the phone")
                 state = .failed(reason: "The iPhone closed the input connection")
             }
         }

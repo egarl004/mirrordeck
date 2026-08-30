@@ -38,12 +38,13 @@ final class InputController {
 
     /// Relative pointer movement, for the Bluetooth transport.
     func mouseMoved(dx: CGFloat, dy: CGFloat) {
-        guard usingBluetooth else { return }
+        guard usingBluetooth else {
+            DebugLog.write("mouseMoved ignored — bluetooth not connected")
+            return
+        }
         let ix = Int(dx.rounded()), iy = Int(dy.rounded())
         guard ix != 0 || iy != 0 else { return }
-        if InputController.debug {
-            NSLog("[MirrorDeck] pointer dx=%d dy=%d", ix, iy)
-        }
+        DebugLog.write("pointer dx=\(ix) dy=\(iy)")
         hid?.movePointer(dx: ix, dy: iy)
     }
 

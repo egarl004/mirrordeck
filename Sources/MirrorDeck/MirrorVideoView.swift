@@ -89,6 +89,7 @@ final class MirrorVideoView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        DebugLog.write("view mouseMoved d=(\(event.deltaX), \(event.deltaY))")
         inputController?.mouseMoved(dx: event.deltaX, dy: event.deltaY)
     }
 
