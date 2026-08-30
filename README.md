@@ -206,7 +206,9 @@ iPhone ◀──(HTTP: taps/swipes/keys via WebDriverAgent :8100)── WDAClien
 - [ ] Audio playback (AAC-ELD decode via AudioToolbox)
 - [ ] Discover WebDriverAgent automatically instead of typing an IP, removing
       both the manual step and the staleness when the phone's address changes
-- [ ] Keep the WDA runner alive, or at least detect its death from the Mac
+- [ ] Keep the WDA runner alive. Its death is now detected and reported —
+      the toolbar turns red and names the cause — but the runner still has to
+      be restarted by hand.
 - [ ] H.265 support (feature bit 42 + HEVC format descriptions)
 
 Contributions welcome. The two roadmap items above about WebDriverAgent
