@@ -140,10 +140,16 @@ preventing the screen from ever dimming requires an on-device app holding
 - [x] Hardware H.264 render via AVSampleBufferDisplayLayer (~1 frame latency)
 - [x] Device-shaped borderless window, hover toolbar, tap ripples, menu bar app
 - [x] WDA control client: tap / long-press / drag / scroll / type / Home
+- [x] Keyboard navigation: arrows for pages, Home, scroll
+- [x] App bundle, generated icon, signed disk image (`scripts/package.sh`)
 - [ ] Audio playback (AAC-ELD decode via AudioToolbox — frames currently dropped)
-- [ ] Auto-discover WDA / launch via go-ios instead of manual IP entry
+- [ ] Auto-discover WDA instead of typing the phone's IP. The phone's address
+      changes when it rejoins Wi-Fi, so the stored host goes stale; discovering
+      the runner over Bonjour (or launching it via `go-ios`) would remove both
+      the manual step and the staleness.
+- [ ] Keep the WDA runner alive, or detect its death from the Mac. It degrades
+      after a few hours and dies outright when the phone leaves the network.
 - [ ] H.265 support (advertise feature bit 42 + HEVC format descriptions)
-- [ ] App bundle + icon (currently a bare SwiftPM executable)
 
 ## Packaging
 
