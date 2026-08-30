@@ -108,8 +108,24 @@ echo
 echo "Built:"
 echo "  $APP"
 echo "  $DMG  ($(du -h "$DMG" | cut -f1))"
-if [ "$SIGNED_FOR_DISTRIBUTION" = "1" ]; then
-    spctl --assess --type execute --verbose=2 "$APP" 2>&1 | sed 's/^/  gatekeeper: /' || true
-else
-    echo "  (ad-hoc signed — Gatekeeper will block this on other Macs)"
-fi
+
+# State the Gatekeeper verdict plainly. A build can be correctly signed and
+# still be blocked everywhere for want of notarization, and the difference is
+# invisible on the machine that produced it.
+VERDICT="$(spctl --assess --type execute "$APP" 2>&1 || true)"
+case "$VERDICT" in
+    *accepted*)
+        echo "  gatekeeper: accepted — ready to distribute"
+        ;;
+    *)
+        echo
+        echo "  ** NOT READY TO DISTRIBUTE **"
+        echo "  gatekeeper: ${VERDICT#*: }"
+        if [ "$SIGNED_FOR_DISTRIBUTION" = "1" ]; then
+            echo "  Signed, but not notarized. Re-run with: NOTARIZE=1 $0"
+        else
+            echo "  Ad-hoc signed. A Developer ID certificate is required."
+        fi
+        echo "  Do not upload this build to a release."
+        ;;
+esac
