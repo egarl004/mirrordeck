@@ -30,4 +30,10 @@ enum Settings {
         get { defaults.string(forKey: "lastWDAHost") }
         set { defaults.set(newValue, forKey: "lastWDAHost") }
     }
+
+    /// Whether the mirror window floats above other applications.
+    static var alwaysOnTop: Bool {
+        get { defaults.bool(forKey: "alwaysOnTop") }
+        set { defaults.set(newValue, forKey: "alwaysOnTop") }
+    }
 }

@@ -184,6 +184,14 @@ a { color: inherit; }
 .step h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 5px; }
 .step p { color: var(--ink-soft); font-size: 15.5px; }
 
+/* ---- donations: one row per service ---- */
+.give { display: grid; gap: 14px; margin-top: 34px; }
+.give-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.give-label {
+  font-family: "IBM Plex Mono", monospace; font-size: 12px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-soft); min-width: 92px;
+}
+
 /* ---- callout ---- */
 .note {
   margin-top: 34px; border-left: 2px solid var(--accent);
@@ -423,14 +431,21 @@ footer a { color: var(--ink-soft); }
       MirrorDeck is free and always will be. If it saved you some time and you feel
       like putting something in the tin, it is appreciated and entirely optional.
     </p>
-    <div class="cta-row">
-      <a class="btn btn-primary" href="https://github.com/sponsors/egarl004">Sponsor on GitHub</a>
-      <a class="btn btn-ghost" href="https://venmo.com/u/emerson-garland">Venmo</a>
-      <a class="btn btn-ghost" href="https://cash.app/$emersongarland">Cash App</a>
+    <div class="give">
+      <div class="give-row">
+        <span class="give-label">Cash App</span>
+        <a class="btn btn-primary" href="https://cash.app/$emersongarland/5">$5</a>
+        <a class="btn btn-primary" href="https://cash.app/$emersongarland/10">$10</a>
+        <a class="btn btn-ghost" href="https://cash.app/$emersongarland">Other amount</a>
+      </div>
+      <div class="give-row">
+        <span class="give-label">Venmo</span>
+        <a class="btn btn-ghost" href="https://venmo.com/u/emerson-garland">@emerson-garland</a>
+      </div>
     </div>
-    <p class="meta-line" style="margin-top:20px">
-      Venmo <span style="color:var(--ink)">@emerson-garland</span> ·
-      Cash App <span style="color:var(--ink)">$emersongarland</span>
+    <p class="meta-line" style="margin-top:22px">
+      Or search <span style="color:var(--ink)">$emersongarland</span> on Cash App,
+      <span style="color:var(--ink)">@emerson-garland</span> on Venmo.
     </p>
   </section>
 

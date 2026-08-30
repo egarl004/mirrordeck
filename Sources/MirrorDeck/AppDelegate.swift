@@ -72,6 +72,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusBar.onQuit = {
             NSApp.terminate(nil)
         }
+        statusBar.onToggleAlwaysOnTop = { [weak self] on in
+            Settings.alwaysOnTop = on
+            self?.windowController.isAlwaysOnTop = on
+        }
+        // Restore the stored preference before the window is ever shown.
+        windowController.isAlwaysOnTop = Settings.alwaysOnTop
+        statusBar.setAlwaysOnTop(Settings.alwaysOnTop)
         windowController.onClose = { [weak self] in
             self?.windowController.dismiss()
         }

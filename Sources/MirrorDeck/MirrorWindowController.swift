@@ -132,6 +132,13 @@ final class MirrorWindowController: NSWindowController {
         deviceNameLabel.stringValue = name
     }
 
+    /// Floats the mirror above other applications' windows.
+    var isAlwaysOnTop: Bool = false {
+        didSet {
+            window?.level = isAlwaysOnTop ? .floating : .normal
+        }
+    }
+
     func setControlState(_ state: WDAClient.State) {
         switch state {
         case .disconnected:

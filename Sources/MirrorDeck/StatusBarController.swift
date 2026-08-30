@@ -6,9 +6,11 @@ final class StatusBarController {
     private let stateItem = NSMenuItem(title: "Starting…", action: nil, keyEquivalent: "")
     private let clientItem = NSMenuItem(title: "No device connected", action: nil, keyEquivalent: "")
     private let showItem: NSMenuItem
+    private let onTopItem: NSMenuItem
 
     var onShowWindow: (() -> Void)?
     var onQuit: (() -> Void)?
+    var onToggleAlwaysOnTop: ((Bool) -> Void)?
 
     private static let autosaveName = "MirrorDeckStatusItem"
 
@@ -31,12 +33,14 @@ final class StatusBarController {
         statusItem.button?.toolTip = "MirrorDeck"
 
         showItem = NSMenuItem(title: "Show Mirror Window", action: #selector(showWindow), keyEquivalent: "m")
+        onTopItem = NSMenuItem(title: "Keep Window on Top", action: #selector(toggleOnTop), keyEquivalent: "t")
 
         let menu = NSMenu()
         stateItem.isEnabled = false
         clientItem.isEnabled = false
         showItem.target = self
         showItem.isEnabled = false
+        onTopItem.target = self
         let quitItem = NSMenuItem(title: "Quit MirrorDeck", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
 
@@ -44,10 +48,22 @@ final class StatusBarController {
         menu.addItem(clientItem)
         menu.addItem(.separator())
         menu.addItem(showItem)
+        menu.addItem(onTopItem)
         menu.addItem(.separator())
         menu.addItem(quitItem)
         menu.autoenablesItems = false
         statusItem.menu = menu
+    }
+
+    /// Reflects the current state in the menu's checkmark.
+    func setAlwaysOnTop(_ on: Bool) {
+        onTopItem.state = on ? .on : .off
+    }
+
+    @objc private func toggleOnTop() {
+        let newValue = onTopItem.state != .on
+        onTopItem.state = newValue ? .on : .off
+        onToggleAlwaysOnTop?(newValue)
     }
 
     func setReceiverState(_ text: String) {

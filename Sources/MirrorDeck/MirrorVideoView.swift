@@ -54,22 +54,50 @@ final class MirrorVideoView: NSView {
 
     // MARK: - Events
 
+    /// True while a ⌘-drag is moving the window rather than touching the phone.
+    private var isMovingWindow = false
+
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        let point = convert(event.locationInWindow, from: nil)
-        inputController?.mouseDown(at: point)
+        // The video fills the window, leaving only a few points of bezel to grab,
+        // so ⌘-drag moves the window from anywhere. Command is never forwarded to
+        // the phone, so this cannot be mistaken for a touch.
+        if event.modifierFlags.contains(.command) {
+            isMovingWindow = true
+            window?.performDrag(with: event)
+            return
+        }
+        isMovingWindow = false
+        inputController?.mouseDown(at: convert(event.locationInWindow, from: nil))
     }
 
     override func mouseDragged(with event: NSEvent) {
+        guard !isMovingWindow else { return }
         inputController?.mouseDragged(to: convert(event.locationInWindow, from: nil))
     }
 
     override func mouseUp(with event: NSEvent) {
+        if isMovingWindow {
+            isMovingWindow = false
+            return
+        }
         let point = convert(event.locationInWindow, from: nil)
         if inputController?.isActive == true {
             showRipple(at: point)
         }
         inputController?.mouseUp(at: point)
+    }
+
+    override func resetCursorRects() {
+        // Hint that the surface is grabbable while Command is held.
+        discardCursorRects()
+        addCursorRect(bounds, cursor: NSEvent.modifierFlags.contains(.command)
+                      ? .openHand : .arrow)
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        window?.invalidateCursorRects(for: self)
+        super.flagsChanged(with: event)
     }
 
     override func scrollWheel(with event: NSEvent) {
