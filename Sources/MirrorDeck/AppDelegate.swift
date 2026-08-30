@@ -27,9 +27,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Leaves the Mac announcing itself as a laptop rather than a keyboard;
-        // otherwise phones report it as unsupported and refuse to pair.
-        hid.disconnect()
+        // Synchronous: an async teardown does not finish before the process
+        // exits, and the HID service record survives inside bluetoothd to break
+        // the next pairing. Also restores the Mac's own device class, without
+        // which phones report it as unsupported and refuse to pair.
+        hid.shutdownSynchronously()
         receiver.stop()
     }
 

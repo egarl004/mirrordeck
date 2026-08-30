@@ -304,12 +304,43 @@ final class BluetoothHID: NSObject {
         queue.async { [weak self] in self?.performDisconnect() }
     }
 
+    /// Synchronous teardown, for application termination. `disconnect()` is
+    /// asynchronous and never completes when the process is exiting, which
+    /// leaves the HID service record published inside bluetoothd. A stale
+    /// record breaks the *next* pairing attempt — the phone sees leftover
+    /// services from a process that no longer exists — and only a bluetoothd
+    /// restart clears it, which needs an admin password.
+    func shutdownSynchronously() {
+        // Unregister first: these fire on the run loop and would otherwise
+        // deliver callbacks into a half-torn-down object.
+        incomingControl?.unregister(); incomingControl = nil
+        incomingInterrupt?.unregister(); incomingInterrupt = nil
+        connectNote?.unregister(); connectNote = nil
+
+        let done = DispatchSemaphore(value: 0)
+        queue.async { [weak self] in
+            self?.performDisconnect()
+            done.signal()
+        }
+        // Bounded: a stalled Bluetooth call must not hold up quitting.
+        if done.wait(timeout: .now() + 2) == .timedOut {
+            DebugLog.write("shutdown timed out — record may be left published")
+        } else {
+            DebugLog.write("clean shutdown: channels closed, record removed")
+        }
+    }
+
     private func performDisconnect() {
         keepAliveTimer?.cancel(); keepAliveTimer = nil
         classOfDeviceTimer?.cancel(); classOfDeviceTimer = nil
         restoreClassOfDevice()
         interruptChannel?.close(); controlChannel?.close()
         interruptChannel = nil; controlChannel = nil
+        // Channels opened but never completed still hold the PSMs.
+        for pending in heldChannels { pending?.close() }
+        heldChannels.removeAll()
+        dialInFlight = false
+        phoneHasReachedUs = false
         serviceRecord?.remove(); serviceRecord = nil
         device?.closeConnection()
         device = nil
