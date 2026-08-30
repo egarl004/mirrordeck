@@ -8,8 +8,15 @@ final class MirrorWindow: NSWindow {
 }
 
 /// Draggable black bezel that frames the mirror — the window *is* the phone.
+/// Everything it leaves exposed (the top bar and the thin border) moves the
+/// window, so the cursor advertises that.
 final class BezelView: NSView {
     override var mouseDownCanMoveWindow: Bool { true }
+
+    override func resetCursorRects() {
+        discardCursorRects()
+        addCursorRect(bounds, cursor: .openHand)
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -34,7 +41,11 @@ final class MirrorWindowController: NSWindowController {
     private var toolbarVisible = false
     private var hideToolbarTimer: Timer?
 
+    /// Thin border on the sides and bottom, and a full-width bar across the top
+    /// that acts as the window's grab handle — the video fills everything else,
+    /// so without it there is nothing to drag.
     private let bezelInset: CGFloat = 6
+    private let topBarHeight: CGFloat = 34
 
     var onControlToggle: (() -> Void)?
     var onClose: (() -> Void)?
@@ -63,7 +74,11 @@ final class MirrorWindowController: NSWindowController {
         bezelView.autoresizingMask = [.width, .height]
         content.addSubview(bezelView)
 
-        videoView.frame = bezelView.bounds.insetBy(dx: bezelInset, dy: bezelInset)
+        // The window is not flipped, so the top bar is taken off the max-Y edge.
+        var videoFrame = bezelView.bounds.insetBy(dx: bezelInset, dy: 0)
+        videoFrame.origin.y = bezelInset
+        videoFrame.size.height = bezelView.bounds.height - bezelInset - topBarHeight
+        videoView.frame = videoFrame
         videoView.autoresizingMask = [.width, .height]
         bezelView.addSubview(videoView)
 
@@ -122,7 +137,9 @@ final class MirrorWindowController: NSWindowController {
             stack.topAnchor.constraint(equalTo: toolbar.topAnchor),
             stack.bottomAnchor.constraint(equalTo: toolbar.bottomAnchor),
             toolbar.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-            toolbar.topAnchor.constraint(equalTo: content.topAnchor, constant: 14),
+            // Centred within the top bar, so the bar reads as the window's chrome.
+            toolbar.centerYAnchor.constraint(equalTo: content.topAnchor,
+                                             constant: -topBarHeight / 2),
         ])
     }
 
@@ -161,9 +178,14 @@ final class MirrorWindowController: NSWindowController {
         let screenFrame = window.screen?.visibleFrame
             ?? NSScreen.main?.visibleFrame
             ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let targetHeight = min(screenFrame.height * 0.8, 780)
-        let targetWidth = targetHeight * aspect
-        window.contentAspectRatio = NSSize(width: aspect, height: 1)
+        // Size the video first, then add the chrome around it, so the picture
+        // keeps its true aspect instead of being squeezed by the top bar.
+        let chromeHeight = topBarHeight + bezelInset
+        let chromeWidth = bezelInset * 2
+        let videoHeight = min(screenFrame.height * 0.8, 780) - chromeHeight
+        let targetHeight = videoHeight + chromeHeight
+        let targetWidth = videoHeight * aspect + chromeWidth
+        window.contentAspectRatio = NSSize(width: targetWidth, height: targetHeight)
 
         var frame = window.frame
         let center = CGPoint(x: frame.midX, y: frame.midY)

@@ -106,6 +106,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if AppDelegate.debugEnabled { self.statusBar.logPlacement() }
             if self.statusBar.isHiddenBehindNotch { self.warnIconHidden() }
         }
+
+        // MIRRORDECK_PREVIEW=1 opens the mirror window with an iPhone-shaped
+        // placeholder. The window otherwise only exists while a phone is
+        // connected, which leaves no way to check its layout while working on it.
+        if ProcessInfo.processInfo.environment["MIRRORDECK_PREVIEW"] == "1" {
+            windowController.setDeviceName("Preview")
+            windowController.setVideoDimensions(width: 1179, height: 2556)
+            windowController.present()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                guard let self, let window = self.windowController.window else { return }
+                let video = self.windowController.videoView.frame
+                let content = window.contentView!.bounds
+                NSLog("[MirrorDeck] window %.0fx%.0f  video %.0fx%.0f at y=%.0f  topBar=%.0fpt  level=%ld",
+                      content.width, content.height, video.width, video.height,
+                      video.minY, content.height - video.maxY, window.level.rawValue)
+            }
+        }
     }
 
     /// Without this the app looks simply broken: no icon, no window, no reason.

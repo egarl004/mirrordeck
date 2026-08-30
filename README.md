@@ -94,6 +94,10 @@ Simulator conventions, so they should already feel familiar:
 | ↑ | Home |
 | ↓ | Scroll down |
 | ⌘⇧H | Home |
+| ⌘-drag | Move the window (the video fills it, so there is little bezel to grab) |
+
+The menu bar item has **Keep Window on Top**, which floats the mirror above
+other applications and is remembered across launches.
 
 ## Known limitations
 
