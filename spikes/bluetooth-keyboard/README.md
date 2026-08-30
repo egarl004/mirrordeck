@@ -1,69 +1,88 @@
-# Spike: the Mac as a Bluetooth keyboard
+# Spike: the Mac as a Bluetooth keyboard and mouse
 
-A working proof that a Mac can present itself to an iPhone as a Bluetooth HID
-keyboard using **only public APIs** — no Xcode on the phone, no Apple Developer
-account, no WebDriverAgent.
+**Working.** A Mac can drive an iPhone's keyboard *and pointer* over Bluetooth
+HID using only public APIs — no Xcode on the phone, no Apple Developer account,
+no WebDriverAgent. Verified against an iPhone 15 Pro on iOS 26.5: text typed
+into Notes, and the AssistiveTouch pointer traced a square and clicked.
 
-If this replaces WDA for input, control stops being a developer-only feature:
-pairing becomes a one-time Bluetooth pair like any keyboard, and latency drops
-from WDA's ~500 ms floor to ordinary Bluetooth HID timings.
+This is a replacement for WebDriverAgent as MirrorDeck's input path:
 
-## Status
+| | WebDriverAgent | Bluetooth HID |
+|---|---|---|
+| Setup for the user | Xcode, Apple Developer account, build and launch a test runner | Pair once, like any keyboard |
+| Latency | ~500 ms per gesture (XCUITest floor) | milliseconds |
+| Stability | runner dies roughly hourly | ordinary Bluetooth link |
+| Reaches ordinary users | no | yes |
 
-Verified end to end against an iPhone 15 Pro on iOS 26.5:
+## The working sequence
 
-- HID service record publishes
-- Class of Device set to keyboard
-- iPhone pairs, then **accepts** L2CAP connections on both HID channels
-- Keystrokes write successfully over HIDP
-- The phone answers on its own initiative — an LED-state report (`a2 00`) and
-  `HID_CONTROL` suspend/resume (`13`, `14`) on the control channel, which is a
-  host managing a keyboard it has accepted
+Order matters more than anything else here. Getting it wrong fails silently or
+with misleading errors.
 
-## The four things that were hard to find
+1. **A normal Mac↔iPhone Bluetooth bond must already exist.** Pair the way two
+   Apple devices normally pair. Do *not* try to pair the Mac as a HID accessory
+   from the phone — see the catch-22 below.
+2. **Publish the HID SDP record** with the composite report map.
+3. **Set the Class of Device** to `0x0025C0` (peripheral, keyboard + pointing),
+   *after* the bond exists.
+4. **Open L2CAP outbound** to PSM `0x11` (control) and `0x13` (interrupt). The
+   phone never initiates; the Mac must.
+5. **Send a report immediately** when the interrupt channel opens, and keep
+   sending. iOS closes an idle HID link within a second or two.
+6. For the pointer, **AssistiveTouch must be enabled** on the phone
+   (Settings → Accessibility → Touch → AssistiveTouch).
 
-Each of these produced a silent failure — a `nil` return or a generic error
-with nothing in any log — so they are worth writing down.
+## Things that cost hours
 
-**1. SDP dictionary encoding.** UUIDs are raw `Data`, *not* `DataElementType` /
-`DataElementValue` dictionaries:
+Each produced a silent failure, a `nil`, or a misleading error.
 
-```swift
-"0001 - ServiceClassIDList": [Data([0x11, 0x24])]     // right
-"0001 - ServiceClassIDList": [["DataElementType": 3, ...]]   // publishes nil
-```
-
-The format is discoverable by reading Apple's own records, e.g.
+**SDP dictionary encoding.** UUIDs are raw `Data`, not `DataElementType` /
+`DataElementValue` dictionaries. Compare against Apple's own records, e.g.
 `/System/Library/CoreServices/OBEXAgent.app/Contents/Resources/OBEXOPPSDPRecord.plist`.
 
-**2. The report map is a text-string element.** `0206 - HIDDescriptorList` is
-the one attribute that rejects raw `Data`; it needs `DataElementType: 4`.
-Isolated by adding attributes one at a time until publishing broke.
+```swift
+"0001 - ServiceClassIDList": [Data([0x11, 0x24])]            // right
+"0001 - ServiceClassIDList": [["DataElementType": 3, ...]]   // returns nil
+```
 
-**3. Class of Device must be set, and its getter lies.**
-`IOBluetoothHostController.setClassOfDevice(0x002540, forTimeInterval:)` —
-Peripheral major class, Keyboard minor class. Without it the Mac announces
-itself as a *Computer*, iOS accepts the socket and then drops it, and every
-write fails with `kIOReturnError`. `classOfDevice()` returns `0x0` regardless,
-before and after, so it cannot be used to check whether the call worked.
+**The report map is a text-string element.** `0206 - HIDDescriptorList` is the
+one attribute that rejects raw `Data`; it needs `DataElementType: 4`. Found by
+adding attributes one at a time until publishing broke.
 
-**4. The phone will not initiate; the Mac must.** iOS pairs with the Mac as a
-computer and never opens the HID channels itself. The Mac opens them outbound
-with `openL2CAPChannelAsync` on PSM `0x11` (control) and `0x13` (interrupt).
-This is the `HIDReconnectInitiate` path.
+**`setClassOfDevice` works, but its getter lies.** `classOfDevice()` returns
+`0x0` before and after a successful call, so it cannot confirm anything. Judge
+by behaviour instead.
 
-## Running it
+**Never advertise as a keyboard while pairing.** iOS pairs keyboards with
+passkey entry — it displays a code and waits for you to *type it on the
+keyboard*. A Mac cannot, so pairing always fails. Pair as an ordinary Mac, then
+switch the class afterwards.
 
-Needs a Mac↔iPhone Bluetooth pairing already in place, and the phone's
-Bluetooth address in the source. Build as a signed `.app` bundle with
-`NSBluetoothAlwaysUsageDescription` — a bare binary is killed by TCC, and
-running the executable directly out of a bundle does not pick up its
-Info.plist, so launch it with `open`.
+**Idle links close instantly.** Any delay between the channel opening and the
+first report loses the link, and subsequent writes fail with a generic
+`kIOReturnError` that says nothing about why.
 
-## Not done yet
+**Pairing must be confirmed on both devices.** Numeric comparison shows the
+same code on the phone and in a dialog on the Mac. Answering only the phone
+times out and reports "Pairing Unsuccessful", which reads like a protocol
+failure and is not one.
 
-- **Mouse.** A keyboard cannot tap coordinates. The same transport carries a
-  mouse report descriptor, which iOS accepts as a pointer via AssistiveTouch —
-  that is what would actually replace WDA. Descriptor change, proven transport.
-- Reconnect handling, key mapping beyond a few test keys, modifiers.
-- Integration into MirrorDeck: this is a standalone spike.
+**Clear stale bonds from both sides.** Forgetting on one side only leaves
+mismatched link keys, and the phone then reports "iPhone can no longer connect
+to… Forget this device and pair it again."
+
+## The one real constraint
+
+iOS reads a HID report map at *accessory-pairing* time. Because we pair as an
+ordinary Mac rather than as an accessory, it is not obvious when the phone
+reads our descriptor — yet the pointer works, so it evidently does. If a future
+iOS stops doing this, the fallback would require pairing as a HID device, which
+runs into the passkey catch-22 above: iOS wants a code typed on the keyboard
+before the keyboard exists.
+
+## Not done
+
+- Modifier keys, full key mapping, scroll wheel
+- Reconnect handling when the phone sleeps or leaves range
+- Choosing where input goes — see `SWITCHING.md`
+- Integration into MirrorDeck; this is still a standalone spike

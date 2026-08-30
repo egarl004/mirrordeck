@@ -54,8 +54,7 @@ final class HID: NSObject, IOBluetoothL2CAPChannelDelegate {
     func l2capChannelOpenComplete(_ c: IOBluetoothL2CAPChannel!, status e: IOReturn) {
         say("PSM 0x\(String(c.psm, radix: 16)) \(e == kIOReturnSuccess ? "OPEN" : "err \(e)")")
         if c.psm == 0x13 { interrupt = c
-            say(">>> pointer test in 6s — enable AssistiveTouch on the phone")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { self.demo() } }
+            self.demo() }
     }
     func l2capChannelClosed(_ c: IOBluetoothL2CAPChannel!) { say("PSM 0x\(String(c.psm, radix: 16)) CLOSED") }
     func l2capChannelData(_ c: IOBluetoothL2CAPChannel!, data: UnsafeMutableRawPointer!, length: Int) {
@@ -81,7 +80,10 @@ final class HID: NSObject, IOBluetoothL2CAPChannelDelegate {
         for _ in 0..<25 { move(0, -8); Thread.sleep(forTimeInterval: 0.02) }
         say(">>> square done; clicking")
         click()
-        say(">>> done")
+        say(">>> done — holding link with idle reports")
+        Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { _ in
+            self.raw([0xA1, 0x02, 0x00, 0, 0, 0])
+        }
     }
 }
 let hid = HID()
@@ -92,5 +94,5 @@ say("control -> \(dev.openL2CAPChannelAsync(&c1, withPSM: 0x0011, delegate: hid)
 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
     say("interrupt -> \(dev.openL2CAPChannelAsync(&c2, withPSM: 0x0013, delegate: hid))")
 }
-DispatchQueue.main.asyncAfter(deadline: .now() + 45) { say("exit"); exit(0) }
+DispatchQueue.main.asyncAfter(deadline: .now() + 40) { say("exit"); exit(0) }
 RunLoop.main.run()
