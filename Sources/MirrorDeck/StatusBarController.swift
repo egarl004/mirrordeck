@@ -12,9 +12,14 @@ final class StatusBarController {
 
     init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        // Remembers where the user ⌘-drags the icon. Matters on notched Macs:
+        // when the menu bar is full macOS parks new items behind the notch,
+        // and without this the icon would return there on every launch.
+        statusItem.autosaveName = "MirrorDeckStatusItem"
         statusItem.button?.image = NSImage(
             systemSymbolName: "iphone.gen3",
             accessibilityDescription: "MirrorDeck")
+        statusItem.button?.toolTip = "MirrorDeck"
 
         showItem = NSMenuItem(title: "Show Mirror Window", action: #selector(showWindow), keyEquivalent: "m")
 

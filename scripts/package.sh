@@ -95,8 +95,21 @@ hdiutil create -volname "$APP_NAME" -srcfolder "$STAGE" -ov \
     -format UDZO "$DMG" >/dev/null
 rm -rf "$STAGE"
 
+# The disk image is notarized too, so it opens cleanly on a machine that has
+# never seen it. Stapling both means neither needs a network check at open time.
+if [ "${NOTARIZE:-0}" = "1" ] && [ "$SIGNED_FOR_DISTRIBUTION" = "1" ]; then
+    echo "==> Notarizing disk image"
+    codesign --force --timestamp --sign "$IDENTITY" "$DMG"
+    xcrun notarytool submit "$DMG" --keychain-profile mirrordeck --wait
+    xcrun stapler staple "$DMG"
+fi
+
 echo
 echo "Built:"
 echo "  $APP"
 echo "  $DMG  ($(du -h "$DMG" | cut -f1))"
-[ "$SIGNED_FOR_DISTRIBUTION" = "1" ] || echo "  (ad-hoc signed — not distributable yet)"
+if [ "$SIGNED_FOR_DISTRIBUTION" = "1" ]; then
+    spctl --assess --type execute --verbose=2 "$APP" 2>&1 | sed 's/^/  gatekeeper: /' || true
+else
+    echo "  (ad-hoc signed — Gatekeeper will block this on other Macs)"
+fi

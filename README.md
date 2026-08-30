@@ -2,6 +2,8 @@
 
 Wireless iOS screen mirroring to your Mac — with mouse control of the real phone.
 
+Free software under the [GPL-3.0](LICENSE).
+
 The Mac advertises itself as an AirPlay screen-mirroring target (like Reflector),
 so it appears in the iPhone's Control Center → Screen Mirroring list. The mirrored
 screen shows up in a minimal, device-shaped borderless window. With WebDriverAgent
@@ -156,89 +158,60 @@ libplist, and libcrypto are all statically linked) with a generated icon,
 `NSLocalNetworkUsageDescription` keys macOS requires to advertise on the local
 network. `VERSION=0.2.0 ./scripts/package.sh` sets the version.
 
-### Before it can be sold
+### Distribution
 
-Three things stand between this and a shippable product. The first is
-mechanical; the other two are not.
+**Signing.** `package.sh` uses a *Developer ID Application* certificate when one
+exists and falls back to ad-hoc signing otherwise. Ad-hoc builds run on the
+machine that made them, but Gatekeeper blocks them everywhere else, so a
+Developer ID certificate is required before sharing the app. Create one in
+Xcode: Settings → Accounts → Manage Certificates → **+** → Developer ID
+Application. `package.sh` picks it up automatically and enables the hardened
+runtime.
 
-**1. Developer ID certificate (mechanical).** This machine has only *Apple
-Development* certificates, so `package.sh` currently falls back to ad-hoc
-signing — Gatekeeper will block that build on any other Mac. You need a
-**Developer ID Application** certificate (Apple Developer Program, $99/yr,
-already active given the 2027 provisioning profile). Create it in Xcode via
-Settings → Accounts → Manage Certificates → **+** → Developer ID Application,
-then re-run `package.sh` — it picks the identity up automatically and switches
-on the hardened runtime. For notarization, store credentials once:
+**Notarization.** Apple scans and approves the build so it opens without
+warnings. Store credentials once, then package with `NOTARIZE=1`:
 
 ```sh
-xcrun notarytool store-credentials mirrordeck --apple-id <you@example.com> --team-id HLL4A3K24N
+xcrun notarytool store-credentials mirrordeck \
+    --apple-id <you@example.com> --team-id HLL4A3K24N
+NOTARIZE=1 ./scripts/package.sh
 ```
 
-then `NOTARIZE=1 ./scripts/package.sh`.
+The app-specific password comes from appleid.apple.com → Sign-In and Security →
+App-Specific Passwords.
 
-**2a. LGPL relinking — done.** The AirPlay core (UxPlay `lib/`, LGPL-2.1) and
-libplist (LGPL-2.1) now live in a replaceable shared library,
-`Contents/Frameworks/libMirrorCore.dylib`, which exports only `mb_start` and
-`mb_stop`. The app binary contains none of that code. Users can rebuild the
-library with `./native/build.sh` and drop it in; license texts and instructions
-ship at `Contents/Resources/licenses/`. Verified: deleting the library stops the
-app from launching, and a rebuilt one works in its place.
+**Licensing.** MirrorDeck is GPL-3.0 (see `LICENSE`). That follows from
+`lib/playfair`, the FairPlay handshake implementation, which is GPL-3.0 and
+mandatory — `fairplay_decrypt()` recovers the media keys, so nothing mirrors
+without it. GPL-3.0 is strong copyleft and a shared library is not a cure for it
+(that accommodation is what distinguishes LGPL), so the combined work is
+GPL-3.0. Distributing the source alongside the app satisfies this.
 
-**2b. GPL-3.0 `playfair` — NOT solved, and it blocks a closed-source product.**
-`lib/playfair`, which performs the FairPlay handshake, is **GPL-3.0**, not LGPL.
-GPL-3.0 is strong copyleft: a shared library is *not* a cure for it (that
-accommodation is exactly what distinguishes LGPL). `playfair` is mandatory —
-`fairplay_decrypt()` recovers the media keys, so nothing mirrors without it.
+The separate LGPL-2.1 obligation is handled structurally: the AirPlay core and
+libplist live in a replaceable `Contents/Frameworks/libMirrorCore.dylib`
+exporting only `mb_start` and `mb_stop`, so anyone can rebuild it with
+`./native/build.sh` and substitute their own build. Verified — deleting the
+library stops the app launching, and a rebuilt one works in its place.
 
-So MirrorDeck **cannot currently be sold as closed source**, regardless of the
-DRM question below. The realistic options are: release MirrorDeck itself under
-GPL-3.0 (selling is allowed, but buyers may redistribute the source); split the
-receiver into a separate GPL-3.0 process talking to a proprietary UI over a
-socket (legally contested, not a settled pattern); or don't sell. See
-[docs/legal-brief.md](docs/legal-brief.md).
+**One thing engineering cannot settle.** `playfair` is a reverse-engineered
+implementation of Apple's FairPlay DRM. Distributing DRM-circumvention code
+carries risk under DMCA §1201 in the US, and that risk does not disappear
+because the software is free. [docs/legal-brief.md](docs/legal-brief.md)
+describes the code and the open questions for a lawyer; it is worth reading
+before publishing this anywhere public.
 
-**3. FairPlay / DMCA exposure (needs a lawyer, not a commit).** Mirroring only
-works because `lib/playfair` implements Apple's FairPlay handshake, which was
-obtained by reverse engineering. Selling software whose core function depends
-on circumventing a DRM scheme carries genuine legal risk in the US under DMCA
-§1201, and Apple controls the AirPlay trademark and its official licensing
-program (MFi). Reflector and AirServer are the proof this market exists, but
-they are companies that have taken deliberate positions on this exact question.
-**Get actual legal advice before selling this** — it is the single largest risk
-to the project, and no amount of engineering removes it.
+## Platform limits worth knowing
 
-None of this blocks building, using, or sharing the app privately. It blocks
-*selling* it.
+**No Mac App Store.** The App Store will not accept the reverse-engineered
+AirPlay implementation or the GPL-licensed code. Direct download is the only
+route — the same one Reflector, AirServer, and X-Mirage take.
 
-## Productization / App Store reality
-
-Two parts of this project sit on opposite sides of Apple's distribution rules:
-
-**Mac app (mirroring):** shippable, but **not via the Mac App Store** — it uses
-the reverse-engineered AirPlay/FairPlay protocol and LGPL/GPL code, which MAS
-won't accept. This is normal for the category: Reflector, AirServer, and
-X-Mirage all ship as **direct downloads signed with a Developer ID and
-notarized**. That path is fully legitimate and is how a MirrorDeck product
-would be distributed.
-
-**iPhone touch control:** there is **no App Store path**. Injecting touches
-into other apps is forbidden on stock iOS (the sandbox has no cross-app
-synthetic events). WebDriverAgent works only because it's a developer-signed
-XCUITest bundle launched via Xcode/`go-ios` — a developer/automation tool, not
-something an end user can install from the App Store. Apple's own iPhone
-Mirroring does this only through private frameworks + account continuity that
-third parties can't use.
-
-So a realistic product is a **direct-download, notarized Mac app** where:
-- Mirroring works for any user out of the box (no phone-side install).
-- Control is a **power-user feature** gated behind a one-time WDA setup, ideally
-  streamlined by bundling `go-ios` to build/install/launch WDA automatically
-  and auto-discover its port. It will always require the user's own Apple
-  developer signing — that constraint can't be removed.
-
-The keep-awake, faster-than-0.5s control, and any "no phone setup" control
-would all require an on-device companion app doing what stock iOS doesn't
-allow, so they don't change the App-Store answer.
+**Control is developer-only, permanently.** iOS does not let apps inject touch
+events into other apps. WebDriverAgent works only because it is a privileged
+XCUITest bundle, which means every user needs their own Apple Developer account
+and Xcode. There is no App Store path and no way to engineer around it, so
+mirroring is the feature that works for everyone and control is a bonus for
+people who already have a development environment.
 
 ## Licensing note
 
@@ -252,7 +225,7 @@ All third-party code is confined to `libMirrorCore.dylib`:
 | libplist | libimobiledevice | LGPL-2.1-or-later |
 | libcrypto | OpenSSL 3 | Apache-2.0 |
 
-UxPlay's renderer/app code is not used. Note that `playfair` is GPL-3.0 and
-mandatory — see "Before it can be sold" above, [licenses/NOTICE.md](licenses/NOTICE.md),
-and [docs/legal-brief.md](docs/legal-brief.md). Fine for personal use; it is the
-central obstacle to selling.
+UxPlay's renderer/app code is not used. `playfair` is GPL-3.0 and mandatory,
+which is why MirrorDeck as a whole is GPL-3.0 — see [LICENSE](LICENSE),
+[licenses/NOTICE.md](licenses/NOTICE.md), and
+[docs/legal-brief.md](docs/legal-brief.md).

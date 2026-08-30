@@ -5,7 +5,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let pipeline = VideoPipeline()
     private let wda = WDAClient()
     private lazy var inputController = InputController(wda: wda)
-    private let statusBar = StatusBarController()
+    // Lazy on purpose: AppDelegate is constructed before NSApplication.run(),
+    // and an NSStatusItem created that early never appears in the menu bar.
+    // First access is from wireUI(), during applicationDidFinishLaunching.
+    private lazy var statusBar = StatusBarController()
     private let windowController = MirrorWindowController()
     private var controlPopover: NSPopover?
 
