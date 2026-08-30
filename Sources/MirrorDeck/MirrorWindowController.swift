@@ -38,8 +38,6 @@ final class MirrorWindowController: NSWindowController {
     private let deviceNameLabel = NSTextField(labelWithString: "iPhone")
     private let controlDot = NSView()
     private let controlButton = NSButton()
-    private var toolbarVisible = false
-    private var hideToolbarTimer: Timer?
 
     /// Thin border on the sides and bottom, and a full-width bar across the top
     /// that acts as the window's grab handle — the video fills everything else,
@@ -98,7 +96,6 @@ final class MirrorWindowController: NSWindowController {
         toolbar.wantsLayer = true
         toolbar.layer?.cornerRadius = 15
         toolbar.layer?.cornerCurve = .continuous
-        toolbar.alphaValue = 0
 
         deviceNameLabel.font = .systemFont(ofSize: 12, weight: .medium)
         deviceNameLabel.textColor = .white
@@ -137,9 +134,10 @@ final class MirrorWindowController: NSWindowController {
             stack.topAnchor.constraint(equalTo: toolbar.topAnchor),
             stack.bottomAnchor.constraint(equalTo: toolbar.bottomAnchor),
             toolbar.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-            // Centred within the top bar, so the bar reads as the window's chrome.
+            // Centred in the top bar. Constants relative to topAnchor increase
+            // downward, so this must be positive — negative puts it off-screen.
             toolbar.centerYAnchor.constraint(equalTo: content.topAnchor,
-                                             constant: -topBarHeight / 2),
+                                             constant: topBarHeight / 2),
         ])
     }
 
@@ -225,37 +223,11 @@ final class MirrorWindowController: NSWindowController {
         })
     }
 
-    // MARK: - Toolbar visibility
+    // MARK: - Toolbar
 
-    override func mouseMoved(with event: NSEvent) {
-        revealToolbar()
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        hideToolbar()
-    }
-
-    private func revealToolbar() {
-        hideToolbarTimer?.invalidate()
-        hideToolbarTimer = Timer.scheduledTimer(withTimeInterval: 1.6, repeats: false) { [weak self] _ in
-            self?.hideToolbar()
-        }
-        guard !toolbarVisible else { return }
-        toolbarVisible = true
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.18
-            toolbar.animator().alphaValue = 1
-        }
-    }
-
-    private func hideToolbar() {
-        guard toolbarVisible else { return }
-        toolbarVisible = false
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.35
-            toolbar.animator().alphaValue = 0
-        }
-    }
+    // The toolbar sits in the top bar, which is chrome rather than picture, so
+    // it stays visible. It used to fade out, which meant Enable Control could
+    // not be found without knowing to hover for it.
 
     // MARK: - Actions
 
