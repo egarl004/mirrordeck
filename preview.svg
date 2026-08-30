@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <rect width="1200" height="630" fill="#0F1318"/>
+  <g font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+    <text x="80" y="250" fill="#E9A13B" font-size="22" letter-spacing="4">MACOS · FREE &amp; OPEN SOURCE</text>
+    <text x="80" y="336" fill="#E7EBEF" font-size="72" font-weight="bold">Your iPhone,</text>
+    <text x="80" y="416" fill="#E7EBEF" font-size="72" font-weight="bold">on your Mac.</text>
+    <text x="80" y="474" fill="#98A2AE" font-size="26">Wireless screen mirroring, with mouse and keyboard control.</text>
+  </g>
+  <!-- phone -->
+  <rect x="792" y="176" width="126" height="248" rx="26" fill="#E7EBEF"/>
+  <rect x="800" y="184" width="110" height="232" rx="20" fill="#5A8AFF"/>
+  <!-- mac -->
+  <rect x="962" y="196" width="176" height="150" rx="10" fill="#161B22" stroke="#272E38" stroke-width="2"/>
+  <rect x="1030" y="212" width="42" height="118" rx="8" fill="#5A8AFF"/>
+  <path d="M948 346h204l14 18H934z" fill="#1D242D" stroke="#272E38" stroke-width="2" stroke-linejoin="round"/>
+  <!-- beams -->
+  <g fill="none" stroke="#5A8AFF" stroke-width="4" stroke-linecap="round" opacity=".75">
+    <path d="M934 268a22 22 0 0 1 0 30"/>
+    <path d="M948 258a36 36 0 0 1 0 50"/>
+  </g>
+</svg>

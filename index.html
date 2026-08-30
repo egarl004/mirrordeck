@@ -3,8 +3,40 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MirrorDeck</title>
-<meta name="description" content="Put your iPhone screen on your Mac over Wi-Fi — and drive it with your mouse and keyboard. Free and open source.">
+<title>MirrorDeck — iPhone screen mirroring for Mac</title>
+<meta name="description" content="Mirror your iPhone screen to your Mac over Wi-Fi and control it with your mouse and keyboard. Free, open source, notarized. No phone-side install for mirroring.">
+<link rel="canonical" href="https://egarl004.github.io/mirrordeck/">
+<meta name="theme-color" content="#0F1318">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="MirrorDeck">
+<meta property="og:title" content="MirrorDeck — iPhone screen mirroring for Mac">
+<meta property="og:description" content="Mirror your iPhone to your Mac over Wi-Fi and control it with your mouse and keyboard. Free and open source.">
+<meta property="og:url" content="https://egarl004.github.io/mirrordeck/">
+<meta property="og:image" content="https://egarl004.github.io/mirrordeck/preview.svg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="MirrorDeck — iPhone screen mirroring for Mac">
+<meta name="twitter:description" content="Mirror your iPhone to your Mac over Wi-Fi and control it with your mouse and keyboard. Free and open source.">
+<meta name="twitter:image" content="https://egarl004.github.io/mirrordeck/preview.svg">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "MirrorDeck",
+  "applicationCategory": "UtilitiesApplication",
+  "operatingSystem": "macOS 14 or later",
+  "description": "Mirror an iPhone screen to a Mac over Wi-Fi and control the device with a mouse and keyboard.",
+  "url": "https://egarl004.github.io/mirrordeck/",
+  "downloadUrl": "https://github.com/egarl004/mirrordeck/releases/latest/download/MirrorDeck.dmg",
+  "softwareVersion": "0.1.0",
+  "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;450;600&display=swap">
@@ -211,16 +243,24 @@ footer a { color: var(--ink-soft); }
         use it with your mouse and keyboard.
       </p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="https://github.com/egarl004/mirrordeck/releases/latest">
+        <a class="btn btn-primary"
+           href="https://github.com/egarl004/mirrordeck/releases/latest/download/MirrorDeck.dmg">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M8 1v9m0 0L4.5 6.5M8 10l3.5-3.5M2 12.5v1A1.5 1.5 0 0 0 3.5 15h9a1.5 1.5 0 0 0 1.5-1.5v-1"
                   stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           Download for macOS
         </a>
+        <a class="btn btn-ghost" href="#support">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M8 13.5S2 10 2 6.2A3.2 3.2 0 0 1 8 4.6a3.2 3.2 0 0 1 6 1.6C14 10 8 13.5 8 13.5Z"
+                  stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+          </svg>
+          Support
+        </a>
         <a class="btn btn-ghost" href="https://github.com/egarl004/mirrordeck">View source</a>
       </div>
-      <p class="meta-line">macOS 14+ · Apple silicon &amp; Intel · ~4 MB</p>
+      <p class="meta-line">Free · macOS 14+ · Apple silicon &amp; Intel · 4.4 MB · signed &amp; notarized</p>
     </div>
 
     <!-- Phone mirrors to Mac; control travels back the other way. -->
@@ -385,6 +425,14 @@ footer a { color: var(--ink-soft); }
     </p>
     <div class="cta-row">
       <a class="btn btn-primary" href="https://github.com/sponsors/egarl004">Sponsor on GitHub</a>
+      <!-- TO ENABLE VENMO / CASH APP: uncomment the two links below and replace
+           the placeholder handles with the real ones. They are left commented
+           out deliberately — a wrong handle sends someone else's money to a
+           stranger, so nothing ships until the values are known to be correct.
+
+      <a class="btn btn-ghost" href="https://venmo.com/u/REPLACE-WITH-VENMO-USERNAME">Venmo</a>
+      <a class="btn btn-ghost" href="https://cash.app/$REPLACE-WITH-CASHTAG">Cash App</a>
+      -->
     </div>
   </section>
 
