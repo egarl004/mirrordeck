@@ -1,10 +1,16 @@
 import AppKit
 
-/// Translates mouse/keyboard events on the mirror view into WDA gestures,
-/// using Simulator conventions: click = tap, click-drag = pan/swipe,
-/// hold = long press, scroll = swipe, typing goes to the phone keyboard.
+/// Translates mouse and keyboard events on the mirror view into input on the
+/// phone, using Simulator conventions: click = tap, click-drag = pan/swipe,
+/// hold = long press, scroll = scroll, typing goes to the phone.
+///
+/// Two transports. Bluetooth HID is preferred when connected — it needs no
+/// setup on the phone beyond pairing, and lands in milliseconds rather than
+/// WebDriverAgent's ~500ms. WDA remains as a fallback, and is still the only
+/// one that can address absolute screen coordinates.
 final class InputController {
     let wda: WDAClient
+    var hid: BluetoothHID?
     /// Maps a point in the video view to device points; nil while size unknown.
     var viewToDevice: ((CGPoint) -> CGPoint?)?
 
@@ -19,14 +25,25 @@ final class InputController {
         self.wda = wda
     }
 
-    var isActive: Bool {
+    var isActive: Bool { usingBluetooth || wdaConnected }
+
+    /// Bluetooth wins when both are available: it is far faster.
+    private var usingBluetooth: Bool { hid?.isConnected ?? false }
+    private var wdaConnected: Bool {
         if case .connected = wda.state { return true }
         return false
     }
 
     // MARK: - Mouse
 
+    /// Relative pointer movement, for the Bluetooth transport.
+    func mouseMoved(dx: CGFloat, dy: CGFloat) {
+        guard usingBluetooth else { return }
+        hid?.movePointer(dx: Int(dx.rounded()), dy: Int(dy.rounded()))
+    }
+
     func mouseDown(at viewPoint: CGPoint) {
+        if usingBluetooth { hid?.setMouseButton(true); return }
         guard let devicePoint = viewToDevice?(viewPoint) else { return }
         dragPoints = [devicePoint]
         dragTimes = [0]
@@ -34,6 +51,7 @@ final class InputController {
     }
 
     func mouseDragged(to viewPoint: CGPoint) {
+        if usingBluetooth { return }   // movement arrives via mouseMoved(dx:dy:)
         guard !dragPoints.isEmpty, let devicePoint = viewToDevice?(viewPoint) else { return }
         let elapsed = ProcessInfo.processInfo.systemUptime - dragStartTime
         // Throttle samples so the W3C action list stays small.
@@ -44,6 +62,7 @@ final class InputController {
     }
 
     func mouseUp(at viewPoint: CGPoint) {
+        if usingBluetooth { hid?.setMouseButton(false); return }
         guard isActive, let start = dragPoints.first else {
             dragPoints = []
             return
@@ -73,6 +92,12 @@ final class InputController {
 
     func scroll(_ event: NSEvent, at viewPoint: CGPoint) {
         guard isActive else { return }
+        if usingBluetooth {
+            // A wheel notch per few points of scroll, sign matched to macOS.
+            let notches = Int((event.scrollingDeltaY / 8).rounded())
+            if notches != 0 { hid?.scroll(notches) }
+            return
+        }
         switch event.phase {
         case .began:
             scrollAccumulator = .zero
@@ -116,9 +141,47 @@ final class InputController {
         static let up: UInt16 = 126
     }
 
+    /// USB HID keyboard usage for a macOS virtual key code, where one exists.
+    private static let hidUsage: [UInt16: UInt8] = [
+        0:0x04, 11:0x05, 8:0x06, 2:0x07, 14:0x08, 3:0x09, 5:0x0A, 4:0x0B,       // a b c d e f g h
+        34:0x0C, 38:0x0D, 40:0x0E, 37:0x0F, 46:0x10, 45:0x11, 31:0x12, 35:0x13, // i j k l m n o p
+        12:0x14, 15:0x15, 1:0x16, 17:0x17, 32:0x18, 9:0x19, 13:0x1A, 7:0x1B,    // q r s t u v w x
+        16:0x1C, 6:0x1D,                                                         // y z
+        18:0x1E, 19:0x1F, 20:0x20, 21:0x21, 23:0x22,                             // 1-5
+        22:0x23, 26:0x24, 28:0x25, 25:0x26, 29:0x27,                             // 6-0
+        36:0x28, 53:0x29, 51:0x2A, 48:0x2B, 49:0x2C,                             // return esc delete tab space
+        27:0x2D, 24:0x2E, 33:0x2F, 30:0x30, 42:0x31,                             // - = [ ] \
+        41:0x33, 39:0x34, 50:0x35, 43:0x36, 47:0x37, 44:0x38,                    // ; ' ` , . /
+        126:0x52, 125:0x51, 123:0x50, 124:0x4F,                                  // arrows
+    ]
+
+    private static func modifierBits(_ flags: NSEvent.ModifierFlags) -> UInt8 {
+        var m: UInt8 = 0
+        if flags.contains(.shift)   { m |= 0x02 }
+        if flags.contains(.control) { m |= 0x01 }
+        if flags.contains(.option)  { m |= 0x04 }
+        if flags.contains(.command) { m |= 0x08 }
+        return m
+    }
+
     /// Returns true when the event was consumed.
     func keyDown(_ event: NSEvent) -> Bool {
         guard isActive else { return false }
+
+        // Bluetooth carries real key events, so the phone applies its own
+        // repeat, modifiers and layout — no need to synthesise gestures.
+        if usingBluetooth {
+            // ⌘ combinations still belong to the Mac, except Home.
+            if event.modifierFlags.contains(.command),
+               event.charactersIgnoringModifiers?.lowercased() == "h",
+               event.modifierFlags.contains(.shift) {
+                hid?.pressKey(0x4A)          // Home
+                return true
+            }
+            guard let usage = Self.hidUsage[event.keyCode] else { return false }
+            hid?.pressKey(usage, modifiers: Self.modifierBits(event.modifierFlags))
+            return true
+        }
         if event.modifierFlags.contains(.command) {
             switch event.charactersIgnoringModifiers?.lowercased() {
             case "h" where event.modifierFlags.contains(.shift):

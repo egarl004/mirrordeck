@@ -7,10 +7,13 @@ final class StatusBarController {
     private let clientItem = NSMenuItem(title: "No device connected", action: nil, keyEquivalent: "")
     private let showItem: NSMenuItem
     private let onTopItem: NSMenuItem
+    private let bluetoothItem: NSMenuItem
 
     var onShowWindow: (() -> Void)?
     var onQuit: (() -> Void)?
     var onToggleAlwaysOnTop: ((Bool) -> Void)?
+    /// Address of the paired iPhone to drive over Bluetooth, or nil to stop.
+    var onSelectBluetoothPhone: ((String?) -> Void)?
 
     private static let autosaveName = "MirrorDeckStatusItem"
 
@@ -34,6 +37,7 @@ final class StatusBarController {
 
         showItem = NSMenuItem(title: "Show Mirror Window", action: #selector(showWindow), keyEquivalent: "m")
         onTopItem = NSMenuItem(title: "Keep Window on Top", action: #selector(toggleOnTop), keyEquivalent: "t")
+        bluetoothItem = NSMenuItem(title: "Control over Bluetooth", action: nil, keyEquivalent: "")
 
         let menu = NSMenu()
         stateItem.isEnabled = false
@@ -49,10 +53,52 @@ final class StatusBarController {
         menu.addItem(.separator())
         menu.addItem(showItem)
         menu.addItem(onTopItem)
+        bluetoothItem.submenu = buildBluetoothMenu()
+        menu.addItem(bluetoothItem)
         menu.addItem(.separator())
         menu.addItem(quitItem)
         menu.autoenablesItems = false
         statusItem.menu = menu
+    }
+
+    /// Lists paired iPhones. Bluetooth needs no setup on the phone beyond
+    /// pairing, so anything already paired can be driven immediately.
+    private func buildBluetoothMenu() -> NSMenu {
+        let menu = NSMenu()
+        let phones = BluetoothHID.pairedPhones()
+        if phones.isEmpty {
+            let none = NSMenuItem(title: "No paired iPhone found", action: nil, keyEquivalent: "")
+            none.isEnabled = false
+            menu.addItem(none)
+        } else {
+            for phone in phones {
+                let item = NSMenuItem(title: phone.name, action: #selector(selectPhone(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = phone.address
+                menu.addItem(item)
+            }
+            menu.addItem(.separator())
+            let off = NSMenuItem(title: "Turn Off", action: #selector(stopBluetooth), keyEquivalent: "")
+            off.target = self
+            menu.addItem(off)
+        }
+        menu.autoenablesItems = false
+        return menu
+    }
+
+    @objc private func selectPhone(_ sender: NSMenuItem) {
+        onSelectBluetoothPhone?(sender.representedObject as? String)
+    }
+
+    @objc private func stopBluetooth() { onSelectBluetoothPhone?(nil) }
+
+    /// Rebuilt on open so newly paired phones appear without a relaunch.
+    func refreshBluetoothMenu() { bluetoothItem.submenu = buildBluetoothMenu() }
+
+    func setBluetoothState(_ connected: Bool, name: String?) {
+        bluetoothItem.title = connected
+            ? "Control over Bluetooth — \(name ?? "on")"
+            : "Control over Bluetooth"
     }
 
     /// Reflects the current state in the menu's checkmark.

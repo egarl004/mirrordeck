@@ -34,6 +34,10 @@
 		<string>_airplay._tcp</string>
 		<string>_raop._tcp</string>
 	</array>
+	<!-- Required to drive the phone as a Bluetooth keyboard and mouse. Without
+	     it macOS terminates the app the moment it touches Bluetooth. -->
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>MirrorDeck uses Bluetooth to act as a keyboard and mouse for your iPhone, so you can control it from your Mac.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>__COPYRIGHT__</string>
 </dict>

@@ -24,6 +24,17 @@ final class MirrorVideoView: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        // mouseMoved only arrives with a tracking area; needed so the phone's
+        // pointer follows the mouse without a button held down.
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect],
+            owner: self, userInfo: nil))
+    }
+
     override func makeBackingLayer() -> CALayer { displayLayer }
     override var isFlipped: Bool { true } // top-left origin, matches device coords
     override var mouseDownCanMoveWindow: Bool { false }
@@ -73,7 +84,12 @@ final class MirrorVideoView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         guard !isMovingWindow else { return }
+        inputController?.mouseMoved(dx: event.deltaX, dy: event.deltaY)
         inputController?.mouseDragged(to: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        inputController?.mouseMoved(dx: event.deltaX, dy: event.deltaY)
     }
 
     override func mouseUp(with event: NSEvent) {

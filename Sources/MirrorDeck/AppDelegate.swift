@@ -4,6 +4,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let receiver = AirPlayReceiver.shared
     private let pipeline = VideoPipeline()
     private let wda = WDAClient()
+    private let hid = BluetoothHID()
     private lazy var inputController = InputController(wda: wda)
     // Lazy on purpose: AppDelegate is constructed before NSApplication.run(),
     // and an NSStatusItem created that early never appears in the menu bar.
@@ -51,6 +52,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func wireControl() {
         windowController.videoView.inputController = inputController
+        inputController.hid = hid
+        hid.onStateChange = { [weak self] state in
+            guard let self else { return }
+            switch state {
+            case .connected(let name):
+                self.windowController.setControlState(.connected(screenSize: .zero))
+                self.statusBar.setBluetoothState(true, name: name)
+                NSLog("[MirrorDeck] Bluetooth input connected to %@", name)
+            case .failed(let reason):
+                self.statusBar.setBluetoothState(false, name: nil)
+                NSLog("[MirrorDeck] Bluetooth input unavailable: %@", reason)
+            case .connecting, .idle:
+                break
+            }
+        }
         inputController.viewToDevice = { [weak self] viewPoint in
             self?.windowController.videoView.devicePoint(for: viewPoint)
         }
@@ -72,9 +88,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusBar.onQuit = {
             NSApp.terminate(nil)
         }
+        statusBar.onSelectBluetoothPhone = { [weak self] address in
+            guard let self else { return }
+            if let address {
+                Settings.bluetoothPhoneAddress = address
+                self.hid.connect(toAddress: address)
+            } else {
+                Settings.bluetoothPhoneAddress = nil
+                self.hid.disconnect()
+                self.statusBar.setBluetoothState(false, name: nil)
+            }
+        }
         statusBar.onToggleAlwaysOnTop = { [weak self] on in
             Settings.alwaysOnTop = on
             self?.windowController.isAlwaysOnTop = on
+        }
+        if let saved = Settings.bluetoothPhoneAddress {
+            hid.connect(toAddress: saved)
         }
         // Restore the stored preference before the window is ever shown.
         windowController.isAlwaysOnTop = Settings.alwaysOnTop
