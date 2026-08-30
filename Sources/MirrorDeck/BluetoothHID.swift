@@ -23,6 +23,10 @@ final class BluetoothHID: NSObject {
 
     private(set) var state: State = .idle {
         didSet {
+            if case .failed = state {
+                classOfDeviceTimer?.cancel(); classOfDeviceTimer = nil
+                restoreClassOfDevice()
+            }
             let s = state
             DispatchQueue.main.async { [weak self] in self?.onStateChange?(s) }
         }
@@ -134,6 +138,7 @@ final class BluetoothHID: NSObject {
     private func performDisconnect() {
         keepAliveTimer?.cancel(); keepAliveTimer = nil
         classOfDeviceTimer?.cancel(); classOfDeviceTimer = nil
+        restoreClassOfDevice()
         interruptChannel?.close(); controlChannel?.close()
         interruptChannel = nil; controlChannel = nil
         serviceRecord?.remove(); serviceRecord = nil
@@ -211,8 +216,16 @@ final class BluetoothHID: NSObject {
 
     private func assertClassOfDevice() {
         // 0x0025C0: peripheral major class, keyboard + pointing minor class.
-        // Note the getter always reads 0x0, so this cannot be verified directly.
+        // The getter always reads 0x0, so this cannot be verified directly.
         _ = IOBluetoothHostController.default()?.setClassOfDevice(0x0025C0, forTimeInterval: 120)
+    }
+
+    /// Put the Mac back to a laptop. While it claims to be a keyboard, phones
+    /// refuse to pair with it at all — iOS reports it as unsupported — so this
+    /// must run on every path out, or the feature leaves the Mac unusable for
+    /// ordinary Bluetooth pairing.
+    private func restoreClassOfDevice() {
+        _ = IOBluetoothHostController.default()?.setClassOfDevice(0x38010C, forTimeInterval: 1)
     }
 
     private func publishServiceRecord() {

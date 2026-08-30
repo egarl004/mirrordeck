@@ -24,6 +24,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Leaves the Mac announcing itself as a laptop rather than a keyboard;
+        // otherwise phones report it as unsupported and refuse to pair.
+        hid.disconnect()
         receiver.stop()
     }
 
