@@ -45,6 +45,8 @@ final class MirrorWindowController: NSWindowController {
     private let bezelInset: CGFloat = 6
     private let topBarHeight: CGFloat = 34
 
+    /// Which transport is carrying input, for the toolbar label.
+    var usingBluetooth = false
     var onControlToggle: (() -> Void)?
     var onClose: (() -> Void)?
 
@@ -164,8 +166,10 @@ final class MirrorWindowController: NSWindowController {
             controlButton.title = "Connecting…"
         case .connected:
             controlDot.layer?.backgroundColor = NSColor.systemGreen.cgColor
-            controlButton.title = "Control On"
-            controlButton.toolTip = nil
+            controlButton.title = usingBluetooth ? "Control · Bluetooth" : "Control · WDA"
+            controlButton.toolTip = usingBluetooth
+                ? "Input is going over Bluetooth"
+                : "Input is going over WebDriverAgent"
         case .failed(let reason):
             controlDot.layer?.backgroundColor = NSColor.systemRed.cgColor
             controlButton.title = "Control Unavailable"

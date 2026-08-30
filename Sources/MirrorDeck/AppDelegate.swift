@@ -57,10 +57,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             switch state {
             case .connected(let name):
+                self.windowController.usingBluetooth = true
                 self.windowController.setControlState(.connected(screenSize: .zero))
                 self.statusBar.setBluetoothState(true, name: name)
                 NSLog("[MirrorDeck] Bluetooth input connected to %@", name)
             case .failed(let reason):
+                self.windowController.usingBluetooth = false
                 self.statusBar.setBluetoothState(false, name: nil)
                 NSLog("[MirrorDeck] Bluetooth input unavailable: %@", reason)
             case .connecting, .idle:
@@ -195,10 +197,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let displayName = name.isEmpty ? "iPhone" : name
             statusBar.setClient(displayName)
             windowController.setDeviceName(displayName)
-            // Reconnect control automatically for known devices.
-            if let host = Settings.wdaHost(forDevice: deviceID) {
-                wda.connect(host: host)
-            }
+            // WebDriverAgent is no longer connected automatically: Bluetooth
+            // input replaced it, needs no setup on the phone, and does not die
+            // hourly. It stays available from the toolbar for absolute
+            // coordinates, which Bluetooth pointing cannot express.
+            _ = deviceID
         case .disconnected:
             statusBar.setClient(nil)
             windowController.dismiss()

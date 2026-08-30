@@ -33,8 +33,10 @@ final class BluetoothHID: NSObject {
     private var device: IOBluetoothDevice?
     private var controlChannel: IOBluetoothL2CAPChannel?
     private var interruptChannel: IOBluetoothL2CAPChannel?
-    private var keepAliveTimer: Timer?
-    private var classOfDeviceTimer: Timer?
+    private var keepAliveTimer: DispatchSourceTimer?
+    private var classOfDeviceTimer: DispatchSourceTimer?
+    /// Every Bluetooth call runs here. They block, and the main thread cannot.
+    private let queue = DispatchQueue(label: "mirrordeck.hid", qos: .userInteractive)
 
     /// HID L2CAP PSMs.
     private let controlPSM: BluetoothL2CAPPSM = 0x0011
@@ -46,17 +48,24 @@ final class BluetoothHID: NSObject {
     /// unrelated to the identifier AirPlay reports, so it has to come from here.
     static func pairedPhones() -> [(name: String, address: String)] {
         guard let devices = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] else { return [] }
-        return devices.compactMap { d in
+        var seen = Set<String>()
+        return devices.compactMap { d -> (name: String, address: String)? in
             // Major class 0x02 is Phone.
             guard (d.deviceClassMajor == 0x02) || (d.name?.localizedCaseInsensitiveContains("iphone") ?? false),
-                  let addr = d.addressString else { return nil }
-            return (d.name ?? addr, addr)
+                  let addr = d.addressString, seen.insert(addr).inserted else { return nil }
+            // Show the address: stale bonds from earlier pairings look identical otherwise.
+            return ("\(d.name ?? "iPhone")  (\(addr))", addr)
         }
     }
 
     // MARK: - Connection
 
     func connect(toAddress address: String) {
+        state = .connecting
+        queue.async { [weak self] in self?.performConnect(address) }
+    }
+
+    private func performConnect(_ address: String) {
         guard let dev = IOBluetoothDevice(addressString: address) else {
             state = .failed(reason: "No Bluetooth device at \(address)")
             return
@@ -66,14 +75,15 @@ final class BluetoothHID: NSObject {
             return
         }
         device = dev
-        state = .connecting
 
         publishServiceRecord()
         assertClassOfDevice()
         // The class of device setting is time-limited, so keep renewing it.
-        classOfDeviceTimer = Timer.scheduledTimer(withTimeInterval: 100, repeats: true) { [weak self] _ in
-            self?.assertClassOfDevice()
-        }
+        let cod = DispatchSource.makeTimerSource(queue: queue)
+        cod.schedule(deadline: .now() + 100, repeating: 100)
+        cod.setEventHandler { [weak self] in self?.assertClassOfDevice() }
+        cod.resume()
+        classOfDeviceTimer = cod
 
         guard dev.openConnection() == kIOReturnSuccess else {
             state = .failed(reason: "Could not reach \(dev.name ?? "the iPhone"). Is it awake and in range?")
@@ -86,8 +96,12 @@ final class BluetoothHID: NSObject {
     }
 
     func disconnect() {
-        keepAliveTimer?.invalidate(); keepAliveTimer = nil
-        classOfDeviceTimer?.invalidate(); classOfDeviceTimer = nil
+        queue.async { [weak self] in self?.performDisconnect() }
+    }
+
+    private func performDisconnect() {
+        keepAliveTimer?.cancel(); keepAliveTimer = nil
+        classOfDeviceTimer?.cancel(); classOfDeviceTimer = nil
         interruptChannel?.close(); controlChannel?.close()
         interruptChannel = nil; controlChannel = nil
         serviceRecord?.remove(); serviceRecord = nil
@@ -149,10 +163,12 @@ final class BluetoothHID: NSObject {
 
     /// 0xA1 is the HIDP header: DATA | INPUT.
     private func write(_ bytes: [UInt8]) {
-        guard let channel = interruptChannel else { return }
-        var packet = bytes
-        _ = packet.withUnsafeMutableBytes {
-            channel.writeSync($0.baseAddress!, length: UInt16($0.count))
+        queue.async { [weak self] in
+            guard let channel = self?.interruptChannel else { return }
+            var packet = bytes
+            _ = packet.withUnsafeMutableBytes {
+                channel.writeSync($0.baseAddress!, length: UInt16($0.count))
+            }
         }
     }
 
@@ -230,17 +246,21 @@ extension BluetoothHID: IOBluetoothL2CAPChannelDelegate {
             // Send immediately: iOS closes a HID link that stays idle, and every
             // write afterwards fails with an unhelpful generic error.
             sendMouse(buttons: 0, dx: 0, dy: 0, wheel: 0)
-            keepAliveTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
+            let keep = DispatchSource.makeTimerSource(queue: queue)
+            keep.schedule(deadline: .now() + 0.3, repeating: 0.3)
+            keep.setEventHandler { [weak self] in
                 guard let self, self.currentButtons == 0 else { return }
                 self.sendMouse(buttons: 0, dx: 0, dy: 0, wheel: 0)
             }
+            keep.resume()
+            keepAliveTimer = keep
             state = .connected(deviceName: device?.name ?? "iPhone")
         }
     }
 
     func l2capChannelClosed(_ channel: IOBluetoothL2CAPChannel!) {
         if channel.psm == interruptPSM {
-            keepAliveTimer?.invalidate(); keepAliveTimer = nil
+            keepAliveTimer?.cancel(); keepAliveTimer = nil
             interruptChannel = nil
             if isConnected { state = .failed(reason: "The iPhone closed the input connection") }
         }
