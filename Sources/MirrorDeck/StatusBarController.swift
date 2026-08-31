@@ -11,12 +11,39 @@ final class StatusBarController {
     /// Live Bluetooth input status, so a failure is visible without the log.
     private let bluetoothStatusItem = NSMenuItem(
         title: "Bluetooth input: off", action: nil, keyEquivalent: "")
+    private let pointerItem = NSMenuItem(title: "Pointer Tracking", action: nil, keyEquivalent: "")
+
+    /// Presets rather than raw numbers: these three knobs only make sense in
+    /// combination, and the useful range is narrow.
+    /// (threshold, transit heartbeat ms, minimum gap ms)
+    static let pointerPresets: [(name: String, threshold: Int, transit: Double, gap: Double)] = [
+        // Transit heartbeat effectively disabled: nothing at all is sent while
+        // the cursor is moving, only the exact position once it stops.
+        ("Snap only",     99_999, 600_000, 120),
+        ("Snap on stop",  32767, 250, 120),
+        ("Coarse",         1200, 160,  90),
+        ("Balanced",        400, 120,  65),
+        ("Smooth",          120,  90,  45),
+    ]
 
     var onShowWindow: (() -> Void)?
     var onQuit: (() -> Void)?
     var onToggleAlwaysOnTop: ((Bool) -> Void)?
     /// Address of the paired iPhone to drive over Bluetooth, or nil to stop.
     var onSelectBluetoothPhone: ((String?) -> Void)?
+    /// Applied live — the pointer logic re-reads these on every report.
+    var onSelectPointerPreset: ((String) -> Void)?
+    var onCalibratePointer: (() -> Void)?
+    var onTestMouseKeys: (() -> Void)?
+
+    @objc private func testMouseKeys() { onTestMouseKeys?() }
+
+    @objc private func calibratePointer() { onCalibratePointer?() }
+
+    @objc private func selectPointerPreset(_ sender: NSMenuItem) {
+        sender.menu?.items.forEach { $0.state = $0 === sender ? .on : .off }
+        onSelectPointerPreset?(sender.title)
+    }
 
     private static let autosaveName = "MirrorDeckStatusItem"
 
@@ -59,6 +86,26 @@ final class StatusBarController {
         bluetoothItem.submenu = buildBluetoothMenu()
         menu.addItem(bluetoothItem)
         menu.addItem(bluetoothStatusItem)
+        let pointerMenu = NSMenu()
+        let current = UserDefaults.standard.string(forKey: "pointerPreset") ?? "Balanced"
+        for preset in Self.pointerPresets {
+            let item = NSMenuItem(title: preset.name,
+                                  action: #selector(selectPointerPreset(_:)), keyEquivalent: "")
+            item.target = self
+            item.state = preset.name == current ? .on : .off
+            pointerMenu.addItem(item)
+        }
+        pointerMenu.addItem(.separator())
+        let calibrate = NSMenuItem(title: "Calibrate Automatically",
+                                   action: #selector(calibratePointer), keyEquivalent: "")
+        calibrate.target = self
+        pointerMenu.addItem(calibrate)
+        let mkTest = NSMenuItem(title: "Test Mouse Keys (hold Keypad 8)",
+                                action: #selector(testMouseKeys), keyEquivalent: "")
+        mkTest.target = self
+        pointerMenu.addItem(mkTest)
+        pointerItem.submenu = pointerMenu
+        menu.addItem(pointerItem)
         menu.addItem(.separator())
         menu.addItem(quitItem)
         menu.autoenablesItems = false

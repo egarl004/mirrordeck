@@ -24,6 +24,12 @@ final class MirrorVideoView: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    override func mouseEntered(with event: NSEvent) {
+        // Re-derive the pointer's origin whenever the cursor comes back, so
+        // any accumulated error is discarded rather than compounding.
+        inputController?.reanchorPointer()
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
@@ -31,7 +37,7 @@ final class MirrorVideoView: NSView {
         // pointer follows the mouse without a button held down.
         addTrackingArea(NSTrackingArea(
             rect: .zero,
-            options: [.mouseMoved, .activeAlways, .inVisibleRect],
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
             owner: self, userInfo: nil))
     }
 
@@ -69,6 +75,7 @@ final class MirrorVideoView: NSView {
     private var isMovingWindow = false
 
     override func mouseDown(with event: NSEvent) {
+        DebugLog.write("view.mouseDown key=\(window?.isKeyWindow == true) cmd=\(event.modifierFlags.contains(.command))")
         window?.makeFirstResponder(self)
         // The video fills the window, leaving only a few points of bezel to grab,
         // so ⌘-drag moves the window from anywhere. Command is never forwarded to
@@ -138,9 +145,10 @@ final class MirrorVideoView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         let rect = videoRect
         guard rect.width > 0, rect.height > 0, rect.contains(point) else { return }
-        inputController?.pointerMoved(toNormalized: CGPoint(
-            x: (point.x - rect.minX) / rect.width,
-            y: (point.y - rect.minY) / rect.height))
+        inputController?.pointerMoved(
+            toNormalized: CGPoint(x: (point.x - rect.minX) / rect.width,
+                                  y: (point.y - rect.minY) / rect.height),
+            dx: event.deltaX, dy: event.deltaY)
     }
 
     // MARK: - Tap ripple

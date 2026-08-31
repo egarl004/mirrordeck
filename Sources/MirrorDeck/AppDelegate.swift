@@ -58,7 +58,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Measures the phone's pointer scaling by moving a known amount and
+    /// watching the mirror to see how far it actually went.
+    private func calibratePointer() {
+        DebugLog.write("calibration: invoked")
+        guard let window = windowController.window else {
+            reportCalibration("no mirror window — start mirroring first")
+            return
+        }
+        DebugLog.write("calibration: window #\(window.windowNumber) visible=\(window.isVisible)")
+        // Send a fixed number of identical steps and see how far they went.
+        // Because every step is the same magnitude, distance is linear in the
+        // number of steps, so one measurement gives steps-per-screen.
+        let probeSteps = 30
+        DispatchQueue.global().async { [weak self] in
+            guard let self else { return }
+            self.hid.anchorNow()
+            Thread.sleep(forTimeInterval: 1.0)
+            guard let before = PointerCalibration.capture(window: window) else {
+                self.reportCalibration("capture failed — grant Screen Recording in System Settings > Privacy")
+                return
+            }
+            DebugLog.write("calibration: captured \(before.width)x\(before.height)")
+            for _ in 0..<probeSteps {
+                self.hid.nudgeUnits(dx: BluetoothHID.stepMagnitude, dy: 0)
+            }
+            Thread.sleep(forTimeInterval: 1.2)
+            guard let after = PointerCalibration.capture(window: window),
+                  let moved = PointerCalibration.movement(from: before, to: after) else {
+                self.reportCalibration("could not see the pointer move")
+                return
+            }
+            let travelled = Double(moved.x)
+            let width = Double(before.width)
+            guard travelled > width * 0.02 else {
+                self.reportCalibration("pointer barely moved — is it connected?")
+                return
+            }
+            let perScreen = Double(probeSteps) * (width / travelled)
+            UserDefaults.standard.set(perScreen, forKey: "stepsPerScreen")
+            self.hid.reanchor()
+            self.reportCalibration(String(format: "%.0f steps per screen (%.0f of %.0f px in %d steps)",
+                                          perScreen, travelled, width, probeSteps))
+        }
+    }
+
+    private func reportCalibration(_ text: String) {
+        DebugLog.write("calibration: \(text)")
+        DispatchQueue.main.async { [weak self] in
+            self?.statusBar.setBluetoothStatus("calibration — \(text)")
+        }
+    }
+
+    private func applyPointerPreset(_ name: String) {
+        guard let preset = StatusBarController.pointerPresets.first(where: { $0.name == name })
+        else { return }
+        let d = UserDefaults.standard
+        d.set(name, forKey: "pointerPreset")
+        d.set(preset.threshold, forKey: "pointerThreshold")
+        d.set(preset.transit, forKey: "pointerTransitMs")
+        d.set(preset.gap, forKey: "pointerMinGapMs")
+        NSLog("[MirrorDeck] pointer preset: %@", name)
+    }
+
     private func wireControl() {
+        statusBar.onCalibratePointer = { [weak self] in self?.calibratePointer() }
+        statusBar.onTestMouseKeys = { [weak self] in self?.hid.testMouseKeysMovement() }
+        statusBar.onSelectPointerPreset = { [weak self] name in
+            self?.applyPointerPreset(name)
+        }
         windowController.videoView.inputController = inputController
         inputController.hid = hid
         hid.onStateChange = { [weak self] state in

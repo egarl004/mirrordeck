@@ -1,5 +1,6 @@
 import Foundation
 import IOBluetooth
+import ObjectiveC.runtime
 
 /// Drives a paired iPhone as a Bluetooth keyboard and mouse.
 ///
@@ -80,6 +81,7 @@ final class BluetoothHID: NSObject {
     private let btThread = RunLoopThread(name: "mirrordeck.bluetooth")
     /// Set as soon as the phone reaches us, so nudging stops immediately.
     private var phoneHasReachedUs = false
+    private var linkTuned = false
     private var heldChannels: [IOBluetoothL2CAPChannel?] = []
     private var connectNote: IOBluetoothUserNotification?
     /// One outbound dial at a time. Each refused channel takes about eight
@@ -234,6 +236,65 @@ final class BluetoothHID: NSObject {
         }
     }
 
+    /// Classic Bluetooth links drop into sniff mode to save power, waking only
+    /// at the negotiated interval — which shows up as pointer lag no amount of
+    /// report pacing can fix. A BLE mouse never suffers this, which is why one
+    /// paired straight to the phone feels instant while our classic HID link
+    /// does not. These are private IOBluetooth entry points, so each is probed
+    /// before use and the app works fine without them.
+    private func requestLowLatencyLink(_ dev: IOBluetoothDevice) {
+        let highPower = Selector(("enableHighPower:"))
+        if let m = class_getInstanceMethod(type(of: dev), highPower) {
+            typealias Fn = @convention(c) (AnyObject, Selector, ObjCBool) -> Void
+            let imp = unsafeBitCast(method_getImplementation(m), to: Fn.self)
+            imp(dev, highPower, true)
+            DebugLog.write("link: enableHighPower(true)")
+        } else {
+            DebugLog.write("link: enableHighPower unavailable")
+        }
+
+        // Find the ACL connection handle: both HCI commands are addressed by it.
+        var handle: UInt16 = 0
+        for name in ["getConnectionHandle", "connectionHandle"] {
+            let sel = Selector((name))
+            guard let m = class_getInstanceMethod(type(of: dev), sel) else { continue }
+            typealias HFn = @convention(c) (AnyObject, Selector) -> UInt16
+            handle = unsafeBitCast(method_getImplementation(m), to: HFn.self)(dev, sel)
+            DebugLog.write("link: \(name) -> 0x\(String(handle, radix: 16))")
+            break
+        }
+        guard handle != 0, handle != 0xFFFF, let host = IOBluetoothHostController.default() else {
+            DebugLog.write("link: no usable connection handle yet")
+            return
+        }
+        linkTuned = true
+
+        // Link policy 0x0000 forbids sniff, hold and park, so the controller
+        // cannot park the link between reports. This is the setting that keeps
+        // a classic HID link responsive; BLE mice avoid the problem entirely.
+        let writePolicy = Selector(("BluetoothHCIWriteLinkPolicySettings:inLinkPolicySettings:"))
+        if let m = class_getInstanceMethod(type(of: host), writePolicy) {
+            typealias PFn = @convention(c) (AnyObject, Selector, UInt16, UInt16) -> Int32
+            let rc = unsafeBitCast(method_getImplementation(m), to: PFn.self)(host, writePolicy, handle, 0)
+            DebugLog.write("link: writeLinkPolicySettings(0) -> \(rc)")
+        }
+
+        // And leave sniff now, in case the link is already parked.
+        let exitSniff = Selector(("BluetoothHCIExitSniffMode:outModeChangeResults:"))
+        if let m = class_getInstanceMethod(type(of: host), exitSniff) {
+            var results = [UInt8](repeating: 0, count: 128)
+            typealias EFn = @convention(c) (AnyObject, Selector, UInt16, UnsafeMutableRawPointer) -> Int32
+            let fn = unsafeBitCast(method_getImplementation(m), to: EFn.self)
+            let rc = results.withUnsafeMutableBytes { fn(host, exitSniff, handle, $0.baseAddress!) }
+            DebugLog.write("link: exitSniffMode -> \(rc)")
+        }
+
+        // HIDQoSLatency, HIDSSRHostMaxLatency and connectionModeInterval return
+        // scalars, not objects. Reading them through perform() makes the
+        // runtime treat an integer as an object pointer and crashes, so they
+        // are left alone — they are informational anyway.
+    }
+
     /// Called when the phone opens the interrupt channel to us.
     private func activateInterrupt(_ channel: IOBluetoothL2CAPChannel) {
         guard interruptChannel !== channel else { return }
@@ -249,25 +310,55 @@ final class BluetoothHID: NSObject {
         // Send immediately: iOS closes a HID link that stays idle, and every
         // write afterwards fails with an unhelpful generic error.
         sendPointer(buttons: 0, wheel: 0)
+        // Tunable while we chase pointer latency:
+        //   defaults write com.emersongarland.MirrorDeck pointerIntervalMs -float 25
+        // Absolute positions mean a slower rate loses nothing: each report
+        // carries the current cursor position, so skipped ones are redundant.
+        var intervalMs = UserDefaults.standard.double(forKey: "pointerIntervalMs")
+        if intervalMs <= 0 { intervalMs = 8 }
+        reportIntervalMs = intervalMs
+        DebugLog.write(String(format: "pointer interval: %.1fms (%.0f/s)",
+                              intervalMs, 1000 / intervalMs))
         let keep = DispatchSource.makeTimerSource(queue: queue)
-        keep.schedule(deadline: .now() + 0.016, repeating: 0.016)
+        keep.schedule(deadline: .now() + intervalMs / 1000,
+                      repeating: intervalMs / 1000, leeway: .milliseconds(1))
         var idleTicks = 0
         keep.setEventHandler { [weak self] in
             guard let self else { return }
+            self.ticksSinceInput += 1
+            self.ticksSinceSend += 1
             if self.pointerDirty {
                 idleTicks = 0
                 self.flushPointer()
                 return
             }
             idleTicks += 1
-            // iOS drops a HID link that goes quiet, so still report when idle.
-            if idleTicks >= 19, self.currentButtons == 0 {
+            // While a button is held, keep restating it. A single down report
+            // followed by silence reads as a momentary blip — the pointer
+            // flinches and nothing else happens — because a real mouse reports
+            // its button state continuously for as long as it is held.
+            // iOS drops a HID link that goes quiet, so still report when idle —
+            // but never while a button is held.
+            if Double(idleTicks) * intervalMs >= 300, self.currentButtons == 0 {
                 idleTicks = 0
-                self.sendPointer(buttons: 0, wheel: 0)
+                if self.useRelative { self.sendRelative(buttons: 0, dx: 0, dy: 0, wheel: 0) }
+                else { self.sendPointer(buttons: 0, wheel: 0) }
             }
         }
         keep.resume()
         keepAliveTimer = keep
+        // The connection handle is not populated the instant the channel opens,
+        // so retry briefly. channel.device is the object bound to the live
+        // connection; ours, built from an address, may never carry a handle.
+        let candidates = [channel.device, device].compactMap { $0 }
+        DebugLog.write("link: channel.device=\(channel.device != nil) candidates=\(candidates.count)")
+        for delay in [0.0, 1.0, 3.0] {
+            btThread.async { [weak self] in
+                Thread.sleep(forTimeInterval: delay)
+                guard let self, !self.linkTuned else { return }
+                for dev in candidates { self.requestLowLatencyLink(dev) }
+            }
+        }
         DebugLog.write("HID interrupt channel open — input is live")
         state = .connected(deviceName: device?.name ?? "iPhone")
     }
@@ -361,6 +452,114 @@ final class BluetoothHID: NSObject {
     /// to acknowledge — and the backlog reads as lag.
 
     /// `x` and `y` are normalised 0...1 within the mirrored image.
+    /// Deltas for relative mode, accumulated so sub-pixel movement is not lost.
+    func movePointer(dx: Double, dy: Double) {
+        queue.async { [weak self] in
+            guard let self, self.interruptChannel != nil else { return }
+            self.pendingDx += dx
+            self.pendingDy += dy
+            var sx = self.pendingDx.rounded(.towardZero)
+            var sy = self.pendingDy.rounded(.towardZero)
+            guard sx != 0 || sy != 0 else { return }
+            self.pendingDx -= sx
+            self.pendingDy -= sy
+            // Split anything beyond one report's range; sub-pixel remainder is
+            // carried so slow movement is not lost to rounding.
+            while sx != 0 || sy != 0 {
+                let stepX = max(-127, min(127, sx))
+                let stepY = max(-127, min(127, sy))
+                self.sendRelative(buttons: self.currentButtons,
+                                  dx: Int8(stepX), dy: Int8(stepY), wheel: 0)
+                sx -= stepX
+                sy -= stepY
+            }
+        }
+    }
+
+    private func sendRelative(buttons: UInt8, dx: Int8, dy: Int8, wheel: Int8) {
+        write([0xA1, 0x03, buttons,
+               UInt8(bitPattern: dx), UInt8(bitPattern: dy), UInt8(bitPattern: wheel)])
+    }
+
+    /// Drives the pointer to an absolute position using relative reports,
+    /// which is the only mode iOS actually supports.
+    func moveToNormalized(x: Double, y: Double) {
+        queue.async { [weak self] in
+            guard let self, self.interruptChannel != nil else { return }
+            if !self.anchored { self.performAnchor() }
+
+            // Every report carries an identical delta. iOS applies pointer
+            // acceleration as a function of delta magnitude, so holding the
+            // magnitude constant makes each report travel the same distance
+            // whatever the speed — the mapping becomes linear and depends only
+            // on how many reports are sent, not how fast the mouse moved.
+            let step = Self.stepMagnitude
+            // Reports needed to cross the screen. The one calibrated constant:
+            //   defaults write com.emersongarland.MirrorDeck stepsPerScreen -float 80
+            var perScreen = UserDefaults.standard.double(forKey: "stepsPerScreen")
+            if perScreen <= 0 { perScreen = 80 }
+
+            // Work in whole steps so position is always an exact multiple.
+            let wantX = (x * perScreen).rounded()
+            let wantY = (y * perScreen).rounded()
+            var haveX = (self.believedX * perScreen).rounded()
+            var haveY = (self.believedY * perScreen).rounded()
+
+            while haveX != wantX || haveY != wantY {
+                let dx = haveX < wantX ? step : (haveX > wantX ? -step : 0)
+                let dy = haveY < wantY ? step : (haveY > wantY ? -step : 0)
+                self.sendRelative(buttons: self.currentButtons,
+                                  dx: Int8(dx), dy: Int8(dy), wheel: 0)
+                if dx > 0 { haveX += 1 } else if dx < 0 { haveX -= 1 }
+                if dy > 0 { haveY += 1 } else if dy < 0 { haveY -= 1 }
+            }
+            self.believedX = wantX / perScreen
+            self.believedY = wantY / perScreen
+        }
+    }
+
+    /// Fixed for every report, so acceleration contributes a constant factor.
+    static let stepMagnitude = 12
+
+    /// Pins the pointer into the top-left corner so its position is known.
+    private func performAnchor() {
+        // Anchor with the same step magnitude, enough of them to cross the
+        // screen several times over so the pointer is certainly pinned.
+        for _ in 0..<400 {
+            sendRelative(buttons: currentButtons,
+                         dx: Int8(-Self.stepMagnitude), dy: Int8(-Self.stepMagnitude), wheel: 0)
+        }
+        believedX = 0
+        believedY = 0
+        anchored = true
+        DebugLog.write("pointer anchored to (0,0)")
+    }
+
+    /// Emit a raw relative delta, for calibration probes.
+    func nudgeUnits(dx: Int, dy: Int) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            var rx = dx, ry = dy
+            while rx != 0 || ry != 0 {
+                let sx = max(-100, min(100, rx))
+                let sy = max(-100, min(100, ry))
+                self.sendRelative(buttons: 0, dx: Int8(sx), dy: Int8(sy), wheel: 0)
+                rx -= sx; ry -= sy
+                Thread.sleep(forTimeInterval: 0.008)
+            }
+        }
+    }
+
+    /// Anchor synchronously, for calibration.
+    func anchorNow() {
+        queue.sync { self.performAnchor() }
+    }
+
+    /// Called when the cursor re-enters the mirror, so error cannot accumulate.
+    func reanchor() {
+        queue.async { [weak self] in self?.anchored = false }
+    }
+
     func setPointer(x: Double, y: Double) {
         let cx = UInt16(max(0, min(32767, (x * 32767).rounded())))
         let cy = UInt16(max(0, min(32767, (y * 32767).rounded())))
@@ -370,20 +569,128 @@ final class BluetoothHID: NSObject {
             self.pointerX = cx
             self.pointerY = cy
             self.pointerDirty = true
+            self.ticksSinceInput = 0
         }
     }
 
     /// Called on `queue` by the report timer.
     private func flushPointer() {
         guard pointerDirty else { return }
+        if !useRelative {
+            // Distance travelled since the last report, in report units.
+            let moved = max(abs(Int(pointerX) - Int(lastSentX)),
+                            abs(Int(pointerY) - Int(lastSentY)))
+            // Settled: the cursor has stopped, so send the exact final position
+            // even if it is a tiny move — otherwise the pointer parks slightly
+            // off from where the cursor actually is.
+            // Time-based, and deliberately not tiny: during slow movement the
+            // quantised position can hold still for a couple of ticks while the
+            // cursor is plainly still moving, and a short window reads that as
+            // a stop — which is why snap mode still published in transit.
+            var settleMs = UserDefaults.standard.double(forKey: "pointerSettleMs")
+            if settleMs <= 0 { settleMs = 50 }
+            let settled = Double(ticksSinceInput) * reportIntervalMs >= settleMs
+            var threshold = UserDefaults.standard.integer(forKey: "pointerThreshold")
+            if threshold <= 0 { threshold = 250 }        // ~0.8% of the screen
+
+            // Transit heartbeat: while the cursor is still moving, force the
+            // current position out at a slow fixed rate. Enough to show where
+            // the pointer is heading, slow enough that the phone never builds
+            // the backlog that makes it replay the path after you stop.
+            var transitMs = UserDefaults.standard.double(forKey: "pointerTransitMs")
+            if transitMs <= 0 { transitMs = 120 }
+            let transitDue = Double(ticksSinceSend) * reportIntervalMs >= transitMs
+
+            // Distance alone is not enough: the same path swept quickly
+            // produces the same number of reports in a fraction of the time,
+            // which is what refills the queue. So a distance-triggered report
+            // must also respect a minimum gap, capping the burst rate while
+            // still letting slow movement update as it accumulates distance.
+            var minGapMs = UserDefaults.standard.double(forKey: "pointerMinGapMs")
+            if minGapMs <= 0 { minGapMs = 30 }
+            let gapOK = Double(ticksSinceSend) * reportIntervalMs >= minGapMs
+
+            guard settled || transitDue || (moved >= threshold && gapOK) else { return }
+            ticksSinceSend = 0
+            lastSentX = pointerX
+            lastSentY = pointerY
+        }
         pointerDirty = false
-        sendPointer(buttons: currentButtons, wheel: 0)
+        guard useRelative else {
+            sendPointer(buttons: currentButtons, wheel: 0)
+            return
+        }
+        let stepX = max(-127, min(127, Int(pendingDx)))
+        let stepY = max(-127, min(127, Int(pendingDy)))
+        pendingDx -= Double(stepX)
+        pendingDy -= Double(stepY)
+        sendRelative(buttons: currentButtons, dx: Int8(stepX), dy: Int8(stepY), wheel: 0)
     }
 
+    /// iOS ignores the button bits on an absolute pointer report — proven
+    /// across several descriptors, both button indices and every plausible
+    /// timing. But AssistiveTouch's **Mouse Keys** performs a click wherever
+    /// the pointer currently is, and it is driven from the *keyboard*, which
+    /// this device already does correctly. So movement stays on the absolute
+    /// pointer report and the click travels as a keystroke.
+    ///
+    /// Requires on the phone: Settings → Accessibility → Touch →
+    /// AssistiveTouch → Mouse Keys (on). If a "Use Primary Keyboard" sub-toggle
+    /// is present, turn it off so Mouse Keys does not swallow the letter keys
+    /// and ordinary typing keeps working alongside it.
     func setMouseButton(_ down: Bool, button: Int = 0) {
         let mask = UInt8(1 << button)
         currentButtons = down ? (currentButtons | mask) : (currentButtons & ~mask)
-        sendPointer(buttons: currentButtons, wheel: 0)
+
+        if useMouseKeys {
+            // Keypad 0 holds the button, Keypad . releases it — so this covers
+            // press-and-hold and drag, not just a tap.
+            // Two key sets exist. With AssistiveTouch's "Use Primary Keyboard"
+            // OFF, Mouse Keys listens on the keypad; with it ON, it listens on
+            // the letter keys instead. Which one is live is a phone setting, so
+            // it is selectable here rather than guessed:
+            //   defaults write com.emersongarland.MirrorDeck mouseKeysLetters -bool true
+            // A discrete click on release, rather than a hold/release pair.
+            // Keypad 5 is Mouse Keys' plain "click"; the hold/release codes are
+            // for dragging and are the more exotic path.
+            guard !down else { return }
+            let letters = UserDefaults.standard.bool(forKey: "mouseKeysLetters")
+            let usage: UInt8 = letters ? 0x0C : 0x5D    // I, or Keypad 5
+            sendKeyboard(modifiers: 0, usage: usage)
+            sendKeyboard(modifiers: 0, usage: 0)
+            DebugLog.write("mouse-keys click usage=0x\(String(usage, radix: 16)) at (\(pointerX),\(pointerY))")
+            return
+        }
+
+        sendRelative(buttons: currentButtons, dx: 0, dy: 0, wheel: 0)
+        DebugLog.write(down ? "DOWN buttons=\(currentButtons)" : "UP buttons=\(currentButtons)")
+    }
+
+    private lazy var useMouseKeys = UserDefaults.standard.bool(forKey: "useMouseKeys")
+
+    /// Single click via Mouse Keys (Keypad 5), for cases where a discrete tap
+    /// is wanted rather than a hold/release pair.
+    /// Diagnostic: hold Mouse Keys' "move up" key (Keypad 8) for a second.
+    /// If Mouse Keys is actually attached to this device the pointer drifts
+    /// upward; if an "8" is typed, or nothing happens, no accessibility
+    /// keyboard filter is attached and Mouse Keys can never work here.
+    func testMouseKeysMovement() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            DebugLog.write("mouse-keys test: holding Keypad 8 for 1s")
+            for _ in 0..<50 {
+                self.sendKeyboard(modifiers: 0, usage: 0x60)   // Keypad 8 = up
+                Thread.sleep(forTimeInterval: 0.02)
+            }
+            self.sendKeyboard(modifiers: 0, usage: 0)
+            DebugLog.write("mouse-keys test: released")
+        }
+    }
+
+    func mouseKeysClick() {
+        let letters = UserDefaults.standard.bool(forKey: "mouseKeysLetters")
+        pressKey(letters ? 0x0C : 0x5D)     // I, or Keypad 5
+        DebugLog.write("mouse-keys click (kp5) at (\(pointerX),\(pointerY))")
     }
 
     func scroll(_ amount: Int) {
@@ -408,12 +715,58 @@ final class BluetoothHID: NSObject {
     private var pointerX: UInt16 = 16384
     private var pointerY: UInt16 = 16384
     private var pointerDirty = false
+    /// Last position actually sent, and how many timer ticks since the cursor
+    /// last moved. Absolute reports make every intermediate position
+    /// redundant: only a move large enough to see, or the final position once
+    /// the cursor comes to rest, is worth a report. Sending the rest just
+    /// fills a queue the phone then has to walk through.
+    private var lastSentX: UInt16 = 0
+    private var lastSentY: UInt16 = 0
+    private var ticksSinceInput = 0
+    /// Where we believe the phone's pointer is, in normalised 0...1 screen
+    /// units. Relative reports carry no origin, so this is reconstructed by
+    /// anchoring: the pointer pins at the screen edges, so a burst of large
+    /// negative deltas puts it at a known (0,0).
+    private var believedX = 0.0
+    private var believedY = 0.0
+    private var anchored = false
+    /// Ticks since a report actually went out, and the timer period, so the
+    /// transit heartbeat can be expressed in milliseconds.
+    private var ticksSinceSend = 0
+    private var buttonDownAt: Date?
+    private var heldReports = 0
+    private var reportIntervalMs = 8.0
+    /// Relative mode sends deltas (report 3) instead of positions (report 2):
+    ///   defaults write com.emersongarland.MirrorDeck pointerRelative -bool true
+    private lazy var useRelative =
+        UserDefaults.standard.bool(forKey: "pointerRelative")
+    private var pendingDx = 0.0
+    private var pendingDy = 0.0
+
+    /// Touch report: tip down or up at an absolute position.
+    private func sendTouch(down: Bool) {
+        write([0xA1, 0x04, down ? 1 : 0,
+               UInt8(pointerX & 0xFF), UInt8(pointerX >> 8),
+               UInt8(pointerY & 0xFF), UInt8(pointerY >> 8)])
+    }
+
+    private lazy var useDigitizer =
+        UserDefaults.standard.bool(forKey: "useDigitizer")
 
     private func sendPointer(buttons: UInt8, wheel: Int8) {
+        // Movement always goes out as an absolute mouse report so the pointer
+        // stays visible. The digitizer is used only for taps.
+        if useDigitizer, currentButtons != 0 {
+            // Keep the touch down and tracking while a drag is in progress.
+            sendTouch(down: true)
+        }
         write([0xA1, 0x02, buttons,
                UInt8(pointerX & 0xFF), UInt8(pointerX >> 8),
-               UInt8(pointerY & 0xFF), UInt8(pointerY >> 8),
-               UInt8(bitPattern: wheel)])
+               UInt8(pointerY & 0xFF), UInt8(pointerY >> 8)])
+        // Scrolling moved to the relative report, which still has a wheel.
+        if wheel != 0 {
+            sendRelative(buttons: buttons, dx: 0, dy: 0, wheel: wheel)
+        }
     }
 
     private func sendKeyboard(modifiers: UInt8, usage: UInt8) {
@@ -439,7 +792,7 @@ final class BluetoothHID: NSObject {
     private func assertClassOfDevice() {
         // 0x0025C0: peripheral major class, keyboard + pointing minor class.
         // The getter always reads 0x0, so this cannot be verified directly.
-        _ = IOBluetoothHostController.default()?.setClassOfDevice(0x0025C0, forTimeInterval: 120)
+        _ = IOBluetoothHostController.default()?.setClassOfDevice(0x002540, forTimeInterval: 120)
     }
 
     /// Hand the Mac's real identity back. While it claims to be a keyboard,
@@ -452,7 +805,7 @@ final class BluetoothHID: NSObject {
     /// second: when a timed override expires the controller reverts to the value
     /// macOS actually owns, so nothing has to be guessed.
     private func restoreClassOfDevice() {
-        _ = IOBluetoothHostController.default()?.setClassOfDevice(0x0025C0, forTimeInterval: 1)
+        _ = IOBluetoothHostController.default()?.setClassOfDevice(0x002540, forTimeInterval: 1)
     }
 
     private func publishServiceRecord() {
@@ -481,12 +834,13 @@ final class BluetoothHID: NSObject {
             "0009 - BluetoothProfileDescriptorList*": [[uuid(0x1124), int(0x0100, 2)]],
             "000D - AdditionalProtocolDescriptorList*": [[[uuid(0x0100), int(0x0013, 2)], [uuid(0x0011)]]],
             "0100 - ServiceName*": "MirrorDeck Input",
-            "0202 - HIDDeviceSubclass": int(0xC0, 1),      // keyboard + pointing
+            "0202 - HIDDeviceSubclass": int(0x40, 1),      // keyboard + pointing
             "0203 - HIDCountryCode": int(0x21, 1),
             "0204 - HIDVirtualCable": flag(true),
             "0205 - HIDReconnectInitiate": flag(true),
             "0206 - HIDDescriptorList": [[int(0x22, 1), string(BluetoothHID.reportMap)]],
-            "020D - HIDBootDevice": flag(false),
+            "020D - HIDNormallyConnectable": flag(true),
+            "020E - HIDBootDevice": flag(false),
         ])
     }
 
@@ -496,19 +850,35 @@ final class BluetoothHID: NSObject {
         0x05,0x07, 0x19,0xE0, 0x29,0xE7, 0x15,0x00, 0x25,0x01, 0x75,0x01, 0x95,0x08, 0x81,0x02,
         0x95,0x01, 0x75,0x08, 0x81,0x03,
         0x95,0x06, 0x75,0x08, 0x15,0x00, 0x25,0x65, 0x05,0x07, 0x19,0x00, 0x29,0x65, 0x81,0x00,
+        // LED output report (Num/Caps/Scroll/Compose/Kana) + padding.
+        0x95,0x05, 0x75,0x01, 0x05,0x08, 0x19,0x01, 0x29,0x05, 0x91,0x02,
+        0x95,0x01, 0x75,0x03, 0x91,0x03,
         0xC0,
+        // Absolute pointer, report ID 2. Structure copied from a descriptor
+        // reported working on iPad: buttons are declared at the *application*
+        // level and the Physical collection wraps only X/Y. Our previous
+        // version opened the Physical collection first and nested the buttons
+        // inside it, which iOS parsed for coordinates but not for buttons.
+        // Two buttons and no wheel, matching that descriptor exactly; scrolling
+        // uses the relative mouse report instead.
         0x05,0x01, 0x09,0x02, 0xA1,0x01, 0x85,0x02,
+        0x05,0x09, 0x19,0x01, 0x29,0x02, 0x15,0x00, 0x25,0x01,
+        0x95,0x02, 0x75,0x01, 0x81,0x02,
+        0x95,0x01, 0x75,0x06, 0x81,0x03,
+        0x05,0x01, 0x09,0x01, 0xA1,0x00,
+        0x15,0x00, 0x26,0xFF,0x7F, 0x09,0x30, 0x09,0x31,
+        0x75,0x10, 0x95,0x02, 0x81,0x02,
+        0xC0,
+        0xC0,
+        // Relative mouse, report ID 3.
+        0x05,0x01, 0x09,0x02, 0xA1,0x01, 0x85,0x03,
         0x09,0x01, 0xA1,0x00,
         0x05,0x09, 0x19,0x01, 0x29,0x03, 0x15,0x00, 0x25,0x01, 0x95,0x03, 0x75,0x01, 0x81,0x02,
         0x95,0x01, 0x75,0x05, 0x81,0x03,
-        // Absolute pointer: 16-bit X/Y over 0...32767, Input(Data,Var,Abs).
-        // iOS reads this descriptor when the device is paired and caches it, so
-        // changing it requires forgetting the Mac on the phone and pairing again.
-        0x05,0x01, 0x09,0x30, 0x09,0x31,
-        0x16,0x00,0x00, 0x26,0xFF,0x7F, 0x75,0x10, 0x95,0x02, 0x81,0x02,
+        0x05,0x01, 0x09,0x30, 0x09,0x31, 0x15,0x81, 0x25,0x7F, 0x75,0x08, 0x95,0x02, 0x81,0x06,
         0x09,0x38, 0x15,0x81, 0x25,0x7F, 0x75,0x08, 0x95,0x01, 0x81,0x06,
         0xC0, 0xC0,
-    ])
+        ])
 }
 
 // MARK: - Channel delegate

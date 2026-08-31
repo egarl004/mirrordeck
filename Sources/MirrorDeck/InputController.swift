@@ -40,15 +40,41 @@ final class InputController {
     /// `point` is normalised 0...1 within the mirrored image. The phone's
     /// pointer is absolute, so it lands where the cursor is instead of drifting
     /// away like a trackpad.
-    func pointerMoved(toNormalized point: CGPoint) {
+    func reanchorPointer() {
         guard usingBluetooth else { return }
-        hid?.setPointer(x: Double(point.x), y: Double(point.y))
+        hid?.reanchor()
+    }
+
+    func pointerMoved(toNormalized point: CGPoint, dx: CGFloat, dy: CGFloat) {
+        guard usingBluetooth else { return }
+        // Both are supplied; BluetoothHID sends whichever the active pointer
+        // mode uses, so switching modes needs no change here.
+        // Pass the mouse's own deltas straight through, which is precisely
+        // what a real Bluetooth mouse sends. iOS applies its pointer
+        // acceleration the same way it does for any mouse, so it behaves
+        // identically to one — you aim by watching the phone's pointer.
+        // Reconstructing an absolute position instead means guessing at that
+        // acceleration curve, which cannot be queried or disabled.
+        let d = UserDefaults.standard
+        if d.bool(forKey: "anchoredPointer") {
+            hid?.moveToNormalized(x: Double(point.x), y: Double(point.y))
+        } else if d.bool(forKey: "pointerRelative") {
+            hid?.movePointer(dx: Double(dx), dy: Double(dy))
+        } else {
+            hid?.setPointer(x: Double(point.x), y: Double(point.y))
+        }
     }
 
     static let debug = ProcessInfo.processInfo.environment["MIRRORDECK_DEBUG"] == "1"
 
     func mouseDown(at viewPoint: CGPoint) {
-        if usingBluetooth { hid?.setMouseButton(true); return }
+        if usingBluetooth {
+            // Which HID button index a click sends. Default 0 = button 1, the
+            // primary button iOS maps to a tap.
+            let index = UserDefaults.standard.integer(forKey: "clickButtonIndex")
+            DebugLog.write("InputController.mouseDown -> setMouseButton(true, button: \(index))")
+            hid?.setMouseButton(true, button: index); return
+        }
         guard let devicePoint = viewToDevice?(viewPoint) else { return }
         dragPoints = [devicePoint]
         dragTimes = [0]
@@ -67,7 +93,11 @@ final class InputController {
     }
 
     func mouseUp(at viewPoint: CGPoint) {
-        if usingBluetooth { hid?.setMouseButton(false); return }
+        if usingBluetooth {
+            let index = UserDefaults.standard.integer(forKey: "clickButtonIndex")
+            DebugLog.write("InputController.mouseUp -> setMouseButton(false, button: \(index))")
+            hid?.setMouseButton(false, button: index); return
+        }
         guard isActive, let start = dragPoints.first else {
             dragPoints = []
             return
